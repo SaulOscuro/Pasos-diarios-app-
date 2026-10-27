@@ -1,12 +1,11 @@
 package com.ostwaldviz.pasosdiarios
 
 import android.content.Context
-import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -112,11 +111,14 @@ class DailyTrackerUiTest {
 
     private fun screenshot(name: String) {
         rule.waitForIdle()
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val directory = requireNotNull(context.getExternalFilesDir("screenshots"))
-        directory.mkdirs()
-        val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
-        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        bitmap.recycle()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        // Connected tests uninstall the app afterwards, deleting its external-files directory.
+        // Use the test shell to keep screenshots in shared Downloads until CI collects them.
+        ParcelFileDescriptor.AutoCloseInputStream(
+            automation.executeShellCommand("mkdir -p /sdcard/Download/pasos-ui")
+        ).use { it.readBytes() }
+        ParcelFileDescriptor.AutoCloseInputStream(
+            automation.executeShellCommand("screencap -p /sdcard/Download/pasos-ui/$name.png")
+        ).use { it.readBytes() }
     }
 }

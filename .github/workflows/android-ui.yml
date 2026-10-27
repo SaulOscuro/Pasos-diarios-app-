@@ -32,7 +32,7 @@ jobs:
           disable-animations: true
           script: |
             ./gradlew --no-daemon :app:connectedDebugAndroidTest
-            adb pull /sdcard/Android/data/com.ostwaldviz.pasosdiarios/files/screenshots ui-screenshots
+            adb pull /sdcard/Download/pasos-ui ui-screenshots
       - name: Upload UI results
         if: always()
         uses: actions/upload-artifact@v4

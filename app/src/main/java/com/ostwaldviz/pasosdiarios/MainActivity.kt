@@ -104,6 +104,8 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
 
     MaterialTheme(colorScheme = darkColorScheme(
         primary = Mint, onPrimary = Background, background = Background,
+        secondary = Mint, onSecondary = Background,
+        secondaryContainer = TileCompleted, onSecondaryContainer = Mint,
         onBackground = MainText, surface = CardBackground, onSurface = MainText,
         surfaceVariant = TileBackground, onSurfaceVariant = SecondaryText
     )) {
