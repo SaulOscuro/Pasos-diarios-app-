@@ -25,11 +25,13 @@ El archivo es un APK de pruebas firmado con la clave de depuración de Android. 
 
 ## Compilar localmente
 
-Abre la carpeta en **Android Studio** con JDK 17 y Android SDK 35. Usa Gradle 8.9. En la terminal, si tienes Gradle 8.9 instalado:
+Abre la carpeta en **Android Studio** con JDK 17 y Android SDK 35. El repositorio incluye **Gradle Wrapper 8.9**, así que no necesitas instalar Gradle por separado. En macOS/Linux ejecuta:
 
 ```bash
-gradle :app:testDebugUnitTest :app:assembleDebug
+./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
+
+En Windows ejecuta `gradlew.bat :app:testDebugUnitTest :app:assembleDebug`.
 
 La salida estará en `app/build/outputs/apk/debug/app-debug.apk`.
 

@@ -135,20 +135,18 @@ private fun DailyTrackerApp(repository: StepPreferences) {
                 date = currentDay,
                 checkedMask = checkedMask,
                 onToggle = { index ->
-                    // Do not write today's clicks into yesterday's key on resume.
                     val today = LocalDate.now()
-                    if (today != currentDay) {
-                        currentDay = today
-                        checkedMask = repository.load(today)
-                    } else {
-                        val updated = StepTracker.toggle(checkedMask, index)
-                        checkedMask = updated
-                        repository.save(currentDay, updated)
-                    }
+                    val baseMask = if (today == currentDay) checkedMask else repository.load(today)
+                    val updated = StepTracker.toggle(baseMask, index)
+                    currentDay = today
+                    checkedMask = updated
+                    repository.save(today, updated)
                 },
                 onReset = {
+                    val today = LocalDate.now()
+                    currentDay = today
                     checkedMask = 0
-                    repository.save(currentDay, 0)
+                    repository.save(today, 0)
                 }
             )
         }
