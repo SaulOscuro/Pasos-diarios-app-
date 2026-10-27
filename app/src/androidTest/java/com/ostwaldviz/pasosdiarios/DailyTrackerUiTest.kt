@@ -107,6 +107,8 @@ class DailyTrackerUiTest {
         rule.onNodeWithText("Ajustar bloques y pasos").performClick()
         rule.onNodeWithTag("block-count").performTextReplacement(blocks)
         rule.onNodeWithTag("steps-per-block").performTextReplacement(steps)
+        rule.onNodeWithTag("steps-per-block").performImeAction()
+        rule.onNodeWithText("Guardar cambios").assertIsDisplayed()
     }
 
     private fun screenshot(name: String) {

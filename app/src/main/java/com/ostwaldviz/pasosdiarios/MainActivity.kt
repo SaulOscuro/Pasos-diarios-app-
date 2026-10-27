@@ -16,6 +16,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -27,11 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -214,6 +218,7 @@ private fun DailyHome(
     }
     if (resetDialog) AlertDialog(
         onDismissRequest = { resetDialog = false },
+        containerColor = CardBackground,
         title = { Text("¿Reiniciar el progreso?") },
         text = { Text("Se desmarcarán los bloques de hoy. Los días anteriores conservarán su progreso.") },
         confirmButton = { TextButton(onClick = { onReset(); resetDialog = false }) { Text("Reiniciar") } },
@@ -373,6 +378,7 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
     val plan = runCatching { StepPlan(blocks.toInt(), steps.toInt()) }.getOrNull()
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = CardBackground,
         title = { Text("Tu meta diaria") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -409,6 +415,8 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
 @Composable
 private fun NumberSetting(label: String, tag: String, value: String, maximum: Int, increment: Int, onChange: (String) -> Unit) {
     val number = value.toIntOrNull()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     Column {
         Text(label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -419,7 +427,8 @@ private fun NumberSetting(label: String, tag: String, value: String, maximum: In
             OutlinedTextField(
                 value = value, onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) onChange(it) },
                 modifier = Modifier.weight(1f).testTag(tag), singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboard?.hide() }),
                 isError = number == null || number !in 1..maximum,
                 label = { Text(label) }
             )
