@@ -1,52 +1,61 @@
 package com.ostwaldviz.pasosdiarios
 
-import android.content.Context
 import java.time.LocalDate
+import java.time.LocalTime
 
-/**
- * Ten independently selectable 1,000-step blocks.
- * Bits 0..9 represent the day's completed sessions.
- */
-object StepTracker {
-    const val BLOCK_COUNT = 10
-    const val STEPS_PER_BLOCK = 1_000
-    private const val VALID_BITS = (1 shl BLOCK_COUNT) - 1
-
-    fun normalized(mask: Int): Int = mask and VALID_BITS
-
-    fun isCompleted(mask: Int, index: Int): Boolean {
-        require(index in 0 until BLOCK_COUNT)
-        return normalized(mask) and (1 shl index) != 0
+data class StepPlan(val blockCount: Int = 10, val stepsPerBlock: Int = 1_000) {
+    init {
+        require(blockCount in 1..MAX_BLOCKS)
+        require(stepsPerBlock in 1..MAX_STEPS_PER_BLOCK)
     }
 
-    fun toggle(mask: Int, index: Int): Int {
-        require(index in 0 until BLOCK_COUNT)
-        return normalized(mask) xor (1 shl index)
+    val targetSteps: Int get() = blockCount * stepsPerBlock
+
+    fun suggestedTime(index: Int): LocalTime {
+        require(index in 0 until blockCount)
+        // Keep the original schedule for the default ten-block plan.
+        val minutes = if (blockCount == 10) {
+            listOf(480, 570, 660, 750, 840, 930, 1_020, 1_080, 1_140, 1_200)[index]
+        } else if (blockCount == 1) {
+            480
+        } else {
+            480 + 720 * index / (blockCount - 1)
+        }
+        return LocalTime.of(minutes / 60, minutes % 60)
     }
 
-    fun completedCount(mask: Int): Int = Integer.bitCount(normalized(mask))
-
-    fun steps(mask: Int): Int = completedCount(mask) * STEPS_PER_BLOCK
-
-    fun progress(mask: Int): Float = completedCount(mask).toFloat() / BLOCK_COUNT
+    companion object {
+        const val MAX_BLOCKS = 100
+        const val MAX_STEPS_PER_BLOCK = 100_000
+    }
 }
 
-/**
- * Each local calendar day has its own persisted bitmask. No account, network,
- * step sensor, or permissions are required.
- */
-class StepPreferences(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences(
-        "pasos_diarios_v1",
-        Context.MODE_PRIVATE
-    )
+data class DailyProgress(
+    val date: LocalDate,
+    val plan: StepPlan = StepPlan(),
+    val completed: Set<Int> = emptySet()
+) {
+    init {
+        require(completed.all { it in 0 until plan.blockCount })
+    }
 
-    private fun key(date: LocalDate): String = "blocks_${date}"
+    val completedCount: Int get() = completed.size
+    val totalSteps: Int get() = completedCount * plan.stepsPerBlock
+    val progress: Float get() = completedCount.toFloat() / plan.blockCount
+    val percent: Int get() = completedCount * 100 / plan.blockCount
 
-    fun load(date: LocalDate): Int =
-        StepTracker.normalized(prefs.getInt(key(date), 0))
+    fun toggle(index: Int): DailyProgress {
+        require(index in 0 until plan.blockCount)
+        return copy(completed = if (index in completed) completed - index else completed + index)
+    }
 
-    fun save(date: LocalDate, mask: Int) {
-        prefs.edit().putInt(key(date), StepTracker.normalized(mask)).apply()
+    fun withPlan(newPlan: StepPlan): DailyProgress =
+        copy(plan = newPlan, completed = completed.filterTo(mutableSetOf()) { it < newPlan.blockCount })
+
+    companion object {
+        fun fromLegacy(date: LocalDate, mask: Int): DailyProgress = DailyProgress(
+            date = date,
+            completed = (0 until 10).filterTo(mutableSetOf()) { mask and (1 shl it) != 0 }
+        )
     }
 }

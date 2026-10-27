@@ -1,53 +1,75 @@
 package com.ostwaldviz.pasosdiarios
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
+import java.time.LocalDate
+import java.time.LocalTime
+import org.junit.Assert.*
 import org.junit.Test
 
 class StepTrackerTest {
-    @Test
-    fun startsAtZero() {
-        assertEquals(0, StepTracker.steps(0))
-        assertEquals(0, StepTracker.completedCount(0))
-        assertEquals(0f, StepTracker.progress(0))
+    private val date = LocalDate.of(2026, 10, 27)
+
+    @Test fun defaultPlanStillHasTenThousandSteps() {
+        val record = DailyProgress(date)
+        assertEquals(10_000, record.plan.targetSteps)
+        assertEquals(0, record.totalSteps)
+        assertEquals(0f, record.progress)
     }
 
-    @Test
-    fun eachBlockIsIndependentlyToggleable() {
-        val first = StepTracker.toggle(0, 0)
-        val firstAndLast = StepTracker.toggle(first, 9)
-        assertTrue(StepTracker.isCompleted(firstAndLast, 0))
-        assertTrue(StepTracker.isCompleted(firstAndLast, 9))
-        assertFalse(StepTracker.isCompleted(firstAndLast, 1))
-        assertEquals(2_000, StepTracker.steps(firstAndLast))
-        assertEquals(first, StepTracker.toggle(firstAndLast, 9))
+    @Test fun customPlanCountsIndependentlySelectedBlocks() {
+        val record = DailyProgress(date, StepPlan(12, 500)).toggle(0).toggle(11)
+        assertEquals(setOf(0, 11), record.completed)
+        assertEquals(1_000, record.totalSteps)
+        assertEquals(6_000, record.plan.targetSteps)
+        assertEquals(16, record.percent)
+        assertEquals(setOf(0), record.toggle(11).completed)
     }
 
-    @Test
-    fun allTenBlocksEqualTenThousand() {
-        val full = (0 until 10).fold(0) { mask, index ->
-            StepTracker.toggle(mask, index)
+    @Test fun supportsOneHundredBlocksWithoutBitmaskOverflow() {
+        val record = (0 until 100).fold(DailyProgress(date, StepPlan(100, 100_000))) { r, i -> r.toggle(i) }
+        assertEquals(100, record.completedCount)
+        assertEquals(10_000_000, record.totalSteps)
+        assertEquals(100, record.percent)
+        assertEquals(1f, record.progress)
+        assertEquals(99, record.toggle(64).completedCount)
+    }
+
+    @Test fun removingBlocksKeepsOnlyCompletedBlocksStillInThePlan() {
+        val record = DailyProgress(date).toggle(0).toggle(4).toggle(9).withPlan(StepPlan(5, 250))
+        assertEquals(setOf(0, 4), record.completed)
+        assertEquals(500, record.totalSteps)
+    }
+
+    @Test fun addingBlocksAndChangingStepsPreservesChecks() {
+        val record = DailyProgress(date, StepPlan(3, 500)).toggle(2).withPlan(StepPlan(40, 1_500))
+        assertEquals(setOf(2), record.completed)
+        assertEquals(1_500, record.totalSteps)
+        assertEquals(60_000, record.plan.targetSteps)
+    }
+
+    @Test fun legacyMasksKeepOriginalPlanAndIgnoreExtraBits() {
+        val record = DailyProgress.fromLegacy(date, (1 shl 0) or (1 shl 9) or (1 shl 20))
+        assertEquals(setOf(0, 9), record.completed)
+        assertEquals(StepPlan(), record.plan)
+        assertEquals(2_000, record.totalSteps)
+    }
+
+    @Test fun invalidPlansAndBlockIndicesAreRejected() {
+        listOf(0 to 1_000, 101 to 1_000, 10 to 0, 10 to 100_001).forEach { (blocks, steps) ->
+            assertThrows(IllegalArgumentException::class.java) { StepPlan(blocks, steps) }
         }
-        assertEquals(10, StepTracker.completedCount(full))
-        assertEquals(10_000, StepTracker.steps(full))
-        assertEquals(1f, StepTracker.progress(full))
+        assertThrows(IllegalArgumentException::class.java) { DailyProgress(date).toggle(-1) }
+        assertThrows(IllegalArgumentException::class.java) { DailyProgress(date).toggle(10) }
+        assertThrows(IllegalArgumentException::class.java) { DailyProgress(date, completed = setOf(10)) }
     }
 
-    @Test
-    fun extraBitsAreIgnored() {
-        assertEquals(0, StepTracker.normalized(1 shl 12))
-        assertEquals(0, StepTracker.steps(1 shl 12))
-    }
-
-    @Test
-    fun invalidBlocksAreRejected() {
-        assertThrows(IllegalArgumentException::class.java) {
-            StepTracker.toggle(0, -1)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            StepTracker.isCompleted(0, 10)
+    @Test fun schedulesAreValidForOneDefaultAndManyBlocks() {
+        assertEquals(LocalTime.of(8, 0), StepPlan(1, 500).suggestedTime(0))
+        assertEquals(LocalTime.of(9, 30), StepPlan().suggestedTime(1))
+        for (count in listOf(2, 6, 10, 37, 100)) {
+            val times = (0 until count).map { StepPlan(count, 500).suggestedTime(it) }
+            assertEquals(LocalTime.of(8, 0), times.first())
+            assertEquals(LocalTime.of(20, 0), times.last())
+            assertTrue(times.zipWithNext().all { (a, b) -> a < b })
         }
     }
 }
