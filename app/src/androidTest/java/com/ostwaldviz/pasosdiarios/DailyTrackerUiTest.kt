@@ -103,6 +103,38 @@ class DailyTrackerUiTest {
         }
     }
 
+
+    @Test fun directGoalEntryAndBlockChangesKeepExactlyTheSameTarget() {
+        rule.onNodeWithText("Ajustar bloques y pasos").performClick()
+        rule.onNodeWithTag("target-steps").performTextReplacement("12000")
+        rule.onNodeWithTag("block-count").performTextReplacement("7")
+        rule.onNodeWithText("Para alcanzar la meta exacta: 2 bloques de 1,715 pasos y 5 de 1,714.").assertExists()
+        rule.onNodeWithText("Guardar cambios").performClick()
+        rule.onNodeWithText("Meta: 12,000 pasos").assertExists()
+        rule.onNodeWithTag("block-0").performClick().assertIsOn()
+        rule.onNodeWithTag("total-steps").assertTextEquals("1,715")
+        rule.activityRule.scenario.recreate()
+        rule.onNodeWithTag("block-0").assertIsOn()
+        rule.onNodeWithTag("total-steps").assertTextEquals("1,715")
+        rule.runOnIdle {
+            val plan = DailyRepository(StepPreferences(rule.activity)).current().plan
+            assertEquals(12_000, plan.targetSteps)
+            assertEquals(7, plan.blockCount)
+            assertEquals(2, plan.extraSteps)
+        }
+    }
+
+    @Test fun changingStepsPerBlockRecalculatesTargetInsteadOfKeepingOldGoal() {
+        rule.onNodeWithText("Ajustar bloques y pasos").performClick()
+        rule.onNodeWithTag("target-steps").performTextReplacement("15000")
+        rule.onNodeWithTag("steps-per-block").performTextReplacement("2000")
+        rule.onNodeWithText("20,000 pasos").assertExists()
+        rule.onNodeWithText("Guardar cambios").performClick()
+        rule.onNodeWithText("Meta: 20,000 pasos").assertExists()
+        rule.onNodeWithTag("block-0").performClick()
+        rule.onNodeWithTag("total-steps").assertTextEquals("2,000")
+    }
+
     private fun openSettings(blocks: String, steps: String) {
         rule.onNodeWithText("Ajustar bloques y pasos").performClick()
         rule.onNodeWithTag("block-count").performTextReplacement(blocks)
