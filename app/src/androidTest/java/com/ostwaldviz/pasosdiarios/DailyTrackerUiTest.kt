@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import org.junit.Assert.assertEquals
@@ -105,7 +106,7 @@ class DailyTrackerUiTest {
 
 
     @Test fun directGoalEntryAndBlockChangesKeepExactlyTheSameTarget() {
-        rule.onNodeWithText("Ajustar bloques y pasos").performClick()
+        rule.onNodeWithText("Ajustar meta, bloques y horario").performClick()
         rule.onNodeWithTag("target-steps").performTextReplacement("12000")
         rule.onNodeWithTag("block-count").performTextReplacement("7")
         rule.onNodeWithText("Para alcanzar la meta exacta: 2 bloques de 1,715 pasos y 5 de 1,714.").assertExists()
@@ -125,7 +126,7 @@ class DailyTrackerUiTest {
     }
 
     @Test fun changingStepsPerBlockRecalculatesTargetInsteadOfKeepingOldGoal() {
-        rule.onNodeWithText("Ajustar bloques y pasos").performClick()
+        rule.onNodeWithText("Ajustar meta, bloques y horario").performClick()
         rule.onNodeWithTag("target-steps").performTextReplacement("15000")
         rule.onNodeWithTag("steps-per-block").performTextReplacement("2000")
         rule.onNodeWithText("20,000 pasos").assertExists()
@@ -135,8 +136,66 @@ class DailyTrackerUiTest {
         rule.onNodeWithTag("total-steps").assertTextEquals("2,000")
     }
 
+
+    @Test fun selectedScheduleAppearsInTodaySettingsAndHistoricalDetails() {
+        val today = LocalDate.now()
+        val yesterday = today.minusDays(1)
+        val repository = DailyRepository(StepPreferences(rule.activity))
+        val old = DailyRepository(StepPreferences(rule.activity)) { yesterday }
+        old.changePlan(yesterday, StepPlan().withTimeRange(LocalTime.of(7, 0), LocalTime.of(18, 0)))
+        repository.changePlan(today, StepPlan().withTimeRange(LocalTime.of(9, 0), LocalTime.of(21, 0)))
+        rule.activityRule.scenario.recreate()
+
+        rule.onNodeWithTag("schedule-range").assertExists()
+        rule.onNodeWithTag("block-0").assertExists()
+        rule.onNodeWithText(LocalTime.of(9, 0).format(
+            DateTimeFormatter.ofPattern("h:mm a", Locale("es", "MX"))
+        )).assertExists()
+        rule.onNodeWithText("Ajustar meta, bloques y horario").performClick()
+        rule.onNodeWithTag("start-time").assertHasClickAction()
+        rule.onNodeWithTag("end-time").assertHasClickAction()
+        rule.onNodeWithText("Guardar cambios").performClick()
+        rule.runOnIdle {
+            val plan = DailyRepository(StepPreferences(rule.activity)).current().plan
+            assertEquals(LocalTime.of(9, 0), plan.startTime)
+            assertEquals(LocalTime.of(21, 0), plan.endTime)
+            assertEquals(10_000, plan.targetSteps)
+        }
+
+        rule.onNodeWithText("Historial").performClick()
+        val yesterdayLabel = yesterday.format(DateTimeFormatter.ofPattern(
+            "EEEE d 'de' MMMM 'de' yyyy", Locale("es", "MX")
+        )).replaceFirstChar { it.uppercaseChar() }
+        rule.onNodeWithText(yesterdayLabel).performClick()
+        rule.runOnIdle {
+            val previous = DailyRepository(StepPreferences(rule.activity)).history().last()
+            assertEquals(LocalTime.of(7, 0), previous.plan.startTime)
+            assertEquals(LocalTime.of(18, 0), previous.plan.endTime)
+        }
+        screenshot("07-custom-time-range")
+    }
+
+    @Test fun editingBlocksAndGoalKeepsPreviouslyChosenTimeWindow() {
+        val existing = StepPlan().withTimeRange(LocalTime.of(6, 30), LocalTime.of(19, 15))
+        DailyRepository(StepPreferences(rule.activity)).changePlan(LocalDate.now(), existing)
+        rule.activityRule.scenario.recreate()
+        rule.onNodeWithText("Ajustar meta, bloques y horario").performClick()
+        rule.onNodeWithTag("target-steps").performTextReplacement("12000")
+        rule.onNodeWithTag("block-count").performTextReplacement("7")
+        rule.onNodeWithText("Guardar cambios").performClick()
+        rule.runOnIdle {
+            val plan = DailyRepository(StepPreferences(rule.activity)).current().plan
+            assertEquals(12_000, plan.targetSteps)
+            assertEquals(7, plan.blockCount)
+            assertEquals(LocalTime.of(6, 30), plan.startTime)
+            assertEquals(LocalTime.of(19, 15), plan.endTime)
+            assertEquals(LocalTime.of(6, 30), plan.suggestedTime(0))
+            assertEquals(LocalTime.of(19, 15), plan.suggestedTime(6))
+        }
+    }
+
     private fun openSettings(blocks: String, steps: String) {
-        rule.onNodeWithText("Ajustar bloques y pasos").performClick()
+        rule.onNodeWithText("Ajustar meta, bloques y horario").performClick()
         rule.onNodeWithTag("block-count").performTextReplacement(blocks)
         rule.onNodeWithTag("steps-per-block").performTextReplacement(steps)
         rule.onNodeWithTag("steps-per-block").performImeAction()
