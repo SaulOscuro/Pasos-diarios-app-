@@ -122,4 +122,44 @@ class StepTrackerTest {
         assertEquals(10_000_000, StepPlan.forTarget(10_000_000, 1).targetSteps)
     }
 
+    @Test fun customTimeWindowSpacesBlocksBetweenSelectedHours() {
+        val plan = StepPlan().withTimeRange(LocalTime.of(9, 0), LocalTime.of(21, 0))
+        assertEquals(LocalTime.of(9, 0), plan.suggestedTime(0))
+        assertEquals(LocalTime.of(10, 20), plan.suggestedTime(1))
+        assertEquals(LocalTime.of(15, 40), plan.suggestedTime(5))
+        assertEquals(LocalTime.of(21, 0), plan.suggestedTime(9))
+        assertEquals(10_000, plan.targetSteps)
+    }
+
+    @Test fun singleBlockUsesStartTimeAndShortIntervalsMayRepeatMinutes() {
+        val single = StepPlan(1, 1000).withTimeRange(LocalTime.of(10, 30), LocalTime.of(11, 0))
+        assertEquals(LocalTime.of(10, 30), single.suggestedTime(0))
+        val short = StepPlan(10, 100).withTimeRange(LocalTime.of(12, 0), LocalTime.of(12, 1))
+        assertEquals(LocalTime.of(12, 0), short.suggestedTime(0))
+        assertEquals(LocalTime.of(12, 1), short.suggestedTime(9))
+        assertTrue((0 until 10).map(short::suggestedTime).zipWithNext().all { (a, b) -> a <= b })
+    }
+
+    @Test fun adjustingStepsAndBlocksNeverChangesChosenTimeRange() {
+        val initial = StepPlan().withTimeRange(LocalTime.of(6, 45), LocalTime.of(22, 15))
+        val changed = initial.withTargetSteps(15_000).withBlockCount(7).withStepsPerBlock(2_000)
+        assertEquals(LocalTime.of(6, 45), changed.startTime)
+        assertEquals(LocalTime.of(22, 15), changed.endTime)
+        assertEquals(14_000, changed.targetSteps)
+        assertEquals(LocalTime.of(6, 45), changed.suggestedTime(0))
+        assertEquals(LocalTime.of(22, 15), changed.suggestedTime(6))
+    }
+
+    @Test fun invalidAndOvernightRangesAreRejected() {
+        assertThrows(IllegalArgumentException::class.java) {
+            StepPlan().withTimeRange(LocalTime.of(17, 0), LocalTime.of(17, 0))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            StepPlan().withTimeRange(LocalTime.of(22, 0), LocalTime.of(6, 0))
+        }
+        val plan = StepPlan(3, 100).withTimeRange(LocalTime.of(0, 0), LocalTime.of(23, 59))
+        assertEquals(LocalTime.of(0, 0), plan.suggestedTime(0))
+        assertEquals(LocalTime.of(23, 59), plan.suggestedTime(2))
+    }
+
 }
