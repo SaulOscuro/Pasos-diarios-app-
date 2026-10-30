@@ -3,13 +3,40 @@ package com.ostwaldviz.pasosdiarios
 import java.time.LocalDate
 import java.time.LocalTime
 
-data class StepPlan(val blockCount: Int = 10, val stepsPerBlock: Int = 1_000) {
+/**
+ * Uniform step blocks with an optional one-step remainder distributed among the first blocks.
+ * This keeps the exact daily goal even when it is not divisible by the number of blocks.
+ */
+data class StepPlan(
+    val blockCount: Int = 10,
+    val stepsPerBlock: Int = 1_000,
+    val extraSteps: Int = 0
+) {
     init {
         require(blockCount in 1..MAX_BLOCKS)
         require(stepsPerBlock in 1..MAX_STEPS_PER_BLOCK)
+        require(extraSteps in 0 until blockCount)
+        require(blockCount.toLong() * stepsPerBlock + extraSteps <= MAX_TOTAL_STEPS)
     }
 
-    val targetSteps: Int get() = blockCount * stepsPerBlock
+    val targetSteps: Int get() = blockCount * stepsPerBlock + extraSteps
+
+    fun stepsForBlock(index: Int): Int {
+        require(index in 0 until blockCount)
+        return stepsPerBlock + if (index < extraSteps) 1 else 0
+    }
+
+    fun cumulativeSteps(index: Int): Int {
+        require(index in 0 until blockCount)
+        return (index + 1) * stepsPerBlock + minOf(index + 1, extraSteps)
+    }
+
+    /** Changing the goal or the block count preserves the exact total. */
+    fun withTargetSteps(target: Int): StepPlan = forTarget(target, blockCount)
+    fun withBlockCount(count: Int): StepPlan = forTarget(targetSteps, count)
+
+    /** Manually changing steps per block replaces any remainder and recalculates the total. */
+    fun withStepsPerBlock(steps: Int): StepPlan = StepPlan(blockCount, steps)
 
     fun suggestedTime(index: Int): LocalTime {
         require(index in 0 until blockCount)
@@ -26,7 +53,15 @@ data class StepPlan(val blockCount: Int = 10, val stepsPerBlock: Int = 1_000) {
 
     companion object {
         const val MAX_BLOCKS = 100
-        const val MAX_STEPS_PER_BLOCK = 100_000
+        // Retain the old maximum possible goal (100 blocks x 100,000 steps).
+        const val MAX_TOTAL_STEPS = 10_000_000
+        const val MAX_STEPS_PER_BLOCK = MAX_TOTAL_STEPS
+
+        fun forTarget(targetSteps: Int, blockCount: Int = 10): StepPlan {
+            require(blockCount in 1..MAX_BLOCKS)
+            require(targetSteps in blockCount..MAX_TOTAL_STEPS)
+            return StepPlan(blockCount, targetSteps / blockCount, targetSteps % blockCount)
+        }
     }
 }
 
@@ -40,9 +75,9 @@ data class DailyProgress(
     }
 
     val completedCount: Int get() = completed.size
-    val totalSteps: Int get() = completedCount * plan.stepsPerBlock
-    val progress: Float get() = completedCount.toFloat() / plan.blockCount
-    val percent: Int get() = completedCount * 100 / plan.blockCount
+    val totalSteps: Int get() = completed.sumOf(plan::stepsForBlock)
+    val progress: Float get() = totalSteps.toFloat() / plan.targetSteps
+    val percent: Int get() = totalSteps * 100 / plan.targetSteps
 
     fun toggle(index: Int): DailyProgress {
         require(index in 0 until plan.blockCount)
