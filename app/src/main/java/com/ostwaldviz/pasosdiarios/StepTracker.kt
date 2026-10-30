@@ -10,13 +10,16 @@ import java.time.LocalTime
 data class StepPlan(
     val blockCount: Int = 10,
     val stepsPerBlock: Int = 1_000,
-    val extraSteps: Int = 0
+    val extraSteps: Int = 0,
+    val startTime: LocalTime = DEFAULT_START_TIME,
+    val endTime: LocalTime = DEFAULT_END_TIME
 ) {
     init {
         require(blockCount in 1..MAX_BLOCKS)
         require(stepsPerBlock in 1..MAX_STEPS_PER_BLOCK)
         require(extraSteps in 0 until blockCount)
         require(blockCount.toLong() * stepsPerBlock + extraSteps <= MAX_TOTAL_STEPS)
+        require(startTime.isBefore(endTime)) { "La hora de fin debe ser posterior a la de inicio." }
     }
 
     val targetSteps: Int get() = blockCount * stepsPerBlock + extraSteps
@@ -32,23 +35,28 @@ data class StepPlan(
     }
 
     /** Changing the goal or the block count preserves the exact total. */
-    fun withTargetSteps(target: Int): StepPlan = forTarget(target, blockCount)
-    fun withBlockCount(count: Int): StepPlan = forTarget(targetSteps, count)
+    fun withTargetSteps(target: Int): StepPlan = forTarget(target, blockCount, startTime, endTime)
+    fun withBlockCount(count: Int): StepPlan = forTarget(targetSteps, count, startTime, endTime)
 
     /** Manually changing steps per block replaces any remainder and recalculates the total. */
-    fun withStepsPerBlock(steps: Int): StepPlan = StepPlan(blockCount, steps)
+    fun withStepsPerBlock(steps: Int): StepPlan = StepPlan(blockCount, steps, startTime = startTime, endTime = endTime)
+
+    /** Only the suggested session times change, never the target or checked blocks. */
+    fun withTimeRange(start: LocalTime, end: LocalTime): StepPlan = copy(startTime = start, endTime = end)
 
     fun suggestedTime(index: Int): LocalTime {
         require(index in 0 until blockCount)
-        // Keep the original schedule for the default ten-block plan.
-        val minutes = if (blockCount == 10) {
-            listOf(480, 570, 660, 750, 840, 930, 1_020, 1_080, 1_140, 1_200)[index]
-        } else if (blockCount == 1) {
-            480
-        } else {
-            480 + 720 * index / (blockCount - 1)
+        // Preserve the familiar initial schedule for existing users with ten blocks.
+        // A customized time window spaces all blocks evenly from start through end.
+        if (blockCount == 10 && startTime == DEFAULT_START_TIME && endTime == DEFAULT_END_TIME) {
+            val original = listOf(480, 570, 660, 750, 840, 930, 1_020, 1_080, 1_140, 1_200)
+            return LocalTime.of(original[index] / 60, original[index] % 60)
         }
-        return LocalTime.of(minutes / 60, minutes % 60)
+        if (blockCount == 1) return startTime
+        val firstMinute = startTime.toSecondOfDay() / 60
+        val lastMinute = endTime.toSecondOfDay() / 60
+        val minute = firstMinute + (lastMinute - firstMinute) * index / (blockCount - 1)
+        return LocalTime.of(minute / 60, minute % 60)
     }
 
     companion object {
@@ -56,11 +64,18 @@ data class StepPlan(
         // Retain the old maximum possible goal (100 blocks x 100,000 steps).
         const val MAX_TOTAL_STEPS = 10_000_000
         const val MAX_STEPS_PER_BLOCK = MAX_TOTAL_STEPS
+        val DEFAULT_START_TIME: LocalTime = LocalTime.of(8, 0)
+        val DEFAULT_END_TIME: LocalTime = LocalTime.of(20, 0)
 
-        fun forTarget(targetSteps: Int, blockCount: Int = 10): StepPlan {
+        fun forTarget(
+            targetSteps: Int,
+            blockCount: Int = 10,
+            startTime: LocalTime = DEFAULT_START_TIME,
+            endTime: LocalTime = DEFAULT_END_TIME
+        ): StepPlan {
             require(blockCount in 1..MAX_BLOCKS)
             require(targetSteps in blockCount..MAX_TOTAL_STEPS)
-            return StepPlan(blockCount, targetSteps / blockCount, targetSteps % blockCount)
+            return StepPlan(blockCount, targetSteps / blockCount, targetSteps % blockCount, startTime, endTime)
         }
     }
 }
