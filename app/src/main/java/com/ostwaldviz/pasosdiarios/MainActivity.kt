@@ -1,6 +1,8 @@
 package com.ostwaldviz.pasosdiarios
 
+import android.app.TimePickerDialog
 import android.os.Bundle
+import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -27,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -45,6 +48,7 @@ import kotlinx.coroutines.delay
 import java.text.NumberFormat
 import java.time.Duration
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -169,10 +173,18 @@ private fun DailyHome(
         item { Header(record) }
         item { ProgressCard(record) }
         item {
-            OutlinedButton(onClick = { planDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.Tune, null, Modifier.size(19.dp))
-                Spacer(Modifier.width(9.dp))
-                Text("Ajustar bloques y pasos")
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { planDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Tune, null, Modifier.size(19.dp))
+                    Spacer(Modifier.width(9.dp))
+                    Text("Ajustar meta, bloques y horario")
+                }
+                Text(
+                    "Horario: ${formatTime(record.plan.startTime)} a ${formatTime(record.plan.endTime)}",
+                    color = SecondaryText,
+                    fontSize = 12.sp,
+                    modifier = Modifier.testTag("schedule-range")
+                )
             }
         }
         if (record.completedCount == record.plan.blockCount) {
@@ -302,7 +314,7 @@ private fun SessionTile(record: DailyProgress, index: Int, onToggle: (() -> Unit
             Icon(if (completed) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                 null, Modifier.size(26.dp), tint = if (completed) Mint else SecondaryText)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(record.plan.suggestedTime(index).format(DateTimeFormatter.ofPattern("h:mm a", mexicanLocale)),
+                Text(formatTime(record.plan.suggestedTime(index)),
                     fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = if (completed) Mint else MainText)
                 Text("Bloque ${index + 1} · +${formatNumber(record.plan.stepsForBlock(index))} pasos",
                     fontSize = 12.sp, color = SecondaryText)
@@ -344,6 +356,8 @@ private fun HistoryScreen(history: List<DailyProgress>, today: LocalDate, onSele
                     Text("${record.completedCount} de ${record.plan.blockCount} bloques · " +
                         "${formatStepsPerBlock(record.plan)} pasos por bloque · ${record.percent}%",
                         fontSize = 12.sp, color = SecondaryText)
+                    Text("Horario: ${formatTime(record.plan.startTime)} a ${formatTime(record.plan.endTime)}",
+                        fontSize = 12.sp, color = SecondaryText)
                     Text("Ver bloques ›", color = Mint, fontSize = 13.sp)
                 }
             }
@@ -366,6 +380,10 @@ private fun HistoryDetail(record: DailyProgress, today: LocalDate, onBack: () ->
                 else "Registro guardado · Solo consulta", color = SecondaryText, fontSize = 13.sp)
         }
         item { ProgressCard(record) }
+        item {
+            Text("Horario: ${formatTime(record.plan.startTime)} a ${formatTime(record.plan.endTime)}",
+                fontSize = 13.sp, color = SecondaryText)
+        }
         item { BlockHeading(record.plan.blockCount) }
         items(record.plan.blockCount, key = { it }) { index -> SessionTile(record, index) }
     }
@@ -377,6 +395,8 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
     var blocks by rememberSaveable { mutableStateOf(record.plan.blockCount.toString()) }
     var steps by rememberSaveable { mutableStateOf(record.plan.stepsPerBlock.toString()) }
     var extraSteps by rememberSaveable { mutableIntStateOf(record.plan.extraSteps) }
+    var startTime by rememberSaveable { mutableStateOf(record.plan.startTime.toString()) }
+    var endTime by rememberSaveable { mutableStateOf(record.plan.endTime.toString()) }
 
     // Total is the primary input. Changing the block count redistributes the same goal.
     fun changeTarget(value: String) {
@@ -417,7 +437,8 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
     }
 
     val plan = runCatching {
-        StepPlan(blocks.toInt(), steps.toInt(), extraSteps).also {
+        StepPlan(blocks.toInt(), steps.toInt(), extraSteps,
+            LocalTime.parse(startTime), LocalTime.parse(endTime)).also {
             require(it.targetSteps == target.toInt())
         }
     }.getOrNull()
@@ -437,6 +458,22 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
                     StepPlan.MAX_BLOCKS, 1) { changeBlocks(it) }
                 NumberSetting("Pasos por bloque", "steps-per-block", steps,
                     maximumPerBlock, 100) { changeSteps(it) }
+                Text("Horario de caminatas", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TimeSetting("Desde", LocalTime.parse(startTime), "start-time", Modifier.weight(1f)) {
+                        startTime = it.toString()
+                    }
+                    TimeSetting("Hasta", LocalTime.parse(endTime), "end-time", Modifier.weight(1f)) {
+                        endTime = it.toString()
+                    }
+                }
+                if (!LocalTime.parse(startTime).isBefore(LocalTime.parse(endTime))) {
+                    Text("La hora de fin debe ser posterior a la de inicio, dentro del mismo día.",
+                        color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                } else {
+                    Text("Los horarios de los bloques se repartirán entre estas dos horas.",
+                        color = SecondaryText, fontSize = 12.sp)
+                }
                 if (plan != null && plan.extraSteps > 0) {
                     Text(
                         "Para alcanzar la meta exacta: ${plan.extraSteps} bloques de " +
@@ -456,7 +493,7 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
                     "La meta debe ser válida y alcanzar para dar al menos un paso por bloque.",
                     color = MaterialTheme.colorScheme.error, fontSize = 12.sp
                 )
-                Text("Se aplicará a hoy y a los próximos días. Los días anteriores conservarán su meta.", fontSize = 13.sp)
+                Text("Se aplicará a hoy y a los próximos días. Los días anteriores conservarán su meta y horario.", fontSize = 13.sp)
                 if (plan != null && plan != record.plan) {
                     val remaining = record.withPlan(plan)
                     val removed = record.completedCount - remaining.completedCount
@@ -474,6 +511,37 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
+}
+
+@Composable
+private fun TimeSetting(
+    label: String,
+    time: LocalTime,
+    tag: String,
+    modifier: Modifier = Modifier,
+    onChange: (LocalTime) -> Unit
+) {
+    val context = LocalContext.current
+    OutlinedButton(
+        onClick = {
+            TimePickerDialog(
+                context,
+                { _, hour, minute -> onChange(LocalTime.of(hour, minute)) },
+                time.hour, time.minute, DateFormat.is24HourFormat(context)
+            ).show()
+        },
+        modifier = modifier.testTag(tag),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, BorderColor),
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 11.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, color = SecondaryText, fontSize = 11.sp)
+            Spacer(Modifier.height(3.dp))
+            Text(formatTime(time), color = MainText, fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp, maxLines = 1)
+        }
+    }
 }
 
 @Composable
@@ -519,6 +587,9 @@ private fun NumberSetting(
 private fun dateLabel(date: LocalDate): String = date.format(
     DateTimeFormatter.ofPattern("EEEE d 'de' MMMM 'de' yyyy", mexicanLocale)
 ).replaceFirstChar { it.uppercaseChar() }
+
+private fun formatTime(time: LocalTime): String =
+    time.format(DateTimeFormatter.ofPattern("h:mm a", mexicanLocale))
 
 private fun formatStepsPerBlock(plan: StepPlan): String =
     if (plan.extraSteps == 0) formatNumber(plan.stepsPerBlock)
