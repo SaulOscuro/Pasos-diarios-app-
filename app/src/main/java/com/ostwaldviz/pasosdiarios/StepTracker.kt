@@ -1,52 +1,111 @@
 package com.ostwaldviz.pasosdiarios
 
-import android.content.Context
 import java.time.LocalDate
+import java.time.LocalTime
 
 /**
- * Ten independently selectable 1,000-step blocks.
- * Bits 0..9 represent the day's completed sessions.
+ * Uniform step blocks with an optional one-step remainder distributed among the first blocks.
+ * This keeps the exact daily goal even when it is not divisible by the number of blocks.
  */
-object StepTracker {
-    const val BLOCK_COUNT = 10
-    const val STEPS_PER_BLOCK = 1_000
-    private const val VALID_BITS = (1 shl BLOCK_COUNT) - 1
-
-    fun normalized(mask: Int): Int = mask and VALID_BITS
-
-    fun isCompleted(mask: Int, index: Int): Boolean {
-        require(index in 0 until BLOCK_COUNT)
-        return normalized(mask) and (1 shl index) != 0
+data class StepPlan(
+    val blockCount: Int = 10,
+    val stepsPerBlock: Int = 1_000,
+    val extraSteps: Int = 0,
+    val startTime: LocalTime = DEFAULT_START_TIME,
+    val endTime: LocalTime = DEFAULT_END_TIME
+) {
+    init {
+        require(blockCount in 1..MAX_BLOCKS)
+        require(stepsPerBlock in 1..MAX_STEPS_PER_BLOCK)
+        require(extraSteps in 0 until blockCount)
+        require(blockCount.toLong() * stepsPerBlock + extraSteps <= MAX_TOTAL_STEPS)
+        require(startTime.isBefore(endTime)) { "La hora de fin debe ser posterior a la de inicio." }
     }
 
-    fun toggle(mask: Int, index: Int): Int {
-        require(index in 0 until BLOCK_COUNT)
-        return normalized(mask) xor (1 shl index)
+    val targetSteps: Int get() = blockCount * stepsPerBlock + extraSteps
+
+    fun stepsForBlock(index: Int): Int {
+        require(index in 0 until blockCount)
+        return stepsPerBlock + if (index < extraSteps) 1 else 0
     }
 
-    fun completedCount(mask: Int): Int = Integer.bitCount(normalized(mask))
+    fun cumulativeSteps(index: Int): Int {
+        require(index in 0 until blockCount)
+        return (index + 1) * stepsPerBlock + minOf(index + 1, extraSteps)
+    }
 
-    fun steps(mask: Int): Int = completedCount(mask) * STEPS_PER_BLOCK
+    /** Changing the goal or the block count preserves the exact total. */
+    fun withTargetSteps(target: Int): StepPlan = forTarget(target, blockCount, startTime, endTime)
+    fun withBlockCount(count: Int): StepPlan = forTarget(targetSteps, count, startTime, endTime)
 
-    fun progress(mask: Int): Float = completedCount(mask).toFloat() / BLOCK_COUNT
+    /** Manually changing steps per block replaces any remainder and recalculates the total. */
+    fun withStepsPerBlock(steps: Int): StepPlan = StepPlan(blockCount, steps, startTime = startTime, endTime = endTime)
+
+    /** Only the suggested session times change, never the target or checked blocks. */
+    fun withTimeRange(start: LocalTime, end: LocalTime): StepPlan = copy(startTime = start, endTime = end)
+
+    fun suggestedTime(index: Int): LocalTime {
+        require(index in 0 until blockCount)
+        // Preserve the familiar initial schedule for existing users with ten blocks.
+        // A customized time window spaces all blocks evenly from start through end.
+        if (blockCount == 10 && startTime == DEFAULT_START_TIME && endTime == DEFAULT_END_TIME) {
+            val original = listOf(480, 570, 660, 750, 840, 930, 1_020, 1_080, 1_140, 1_200)
+            return LocalTime.of(original[index] / 60, original[index] % 60)
+        }
+        if (blockCount == 1) return startTime
+        val firstMinute = startTime.toSecondOfDay() / 60
+        val lastMinute = endTime.toSecondOfDay() / 60
+        val minute = firstMinute + (lastMinute - firstMinute) * index / (blockCount - 1)
+        return LocalTime.of(minute / 60, minute % 60)
+    }
+
+    companion object {
+        const val MAX_BLOCKS = 100
+        // Retain the old maximum possible goal (100 blocks x 100,000 steps).
+        const val MAX_TOTAL_STEPS = 10_000_000
+        const val MAX_STEPS_PER_BLOCK = MAX_TOTAL_STEPS
+        val DEFAULT_START_TIME: LocalTime = LocalTime.of(8, 0)
+        val DEFAULT_END_TIME: LocalTime = LocalTime.of(20, 0)
+
+        fun forTarget(
+            targetSteps: Int,
+            blockCount: Int = 10,
+            startTime: LocalTime = DEFAULT_START_TIME,
+            endTime: LocalTime = DEFAULT_END_TIME
+        ): StepPlan {
+            require(blockCount in 1..MAX_BLOCKS)
+            require(targetSteps in blockCount..MAX_TOTAL_STEPS)
+            return StepPlan(blockCount, targetSteps / blockCount, targetSteps % blockCount, startTime, endTime)
+        }
+    }
 }
 
-/**
- * Each local calendar day has its own persisted bitmask. No account, network,
- * step sensor, or permissions are required.
- */
-class StepPreferences(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences(
-        "pasos_diarios_v1",
-        Context.MODE_PRIVATE
-    )
+data class DailyProgress(
+    val date: LocalDate,
+    val plan: StepPlan = StepPlan(),
+    val completed: Set<Int> = emptySet()
+) {
+    init {
+        require(completed.all { it in 0 until plan.blockCount })
+    }
 
-    private fun key(date: LocalDate): String = "blocks_${date}"
+    val completedCount: Int get() = completed.size
+    val totalSteps: Int get() = completed.sumOf(plan::stepsForBlock)
+    val progress: Float get() = totalSteps.toFloat() / plan.targetSteps
+    val percent: Int get() = totalSteps * 100 / plan.targetSteps
 
-    fun load(date: LocalDate): Int =
-        StepTracker.normalized(prefs.getInt(key(date), 0))
+    fun toggle(index: Int): DailyProgress {
+        require(index in 0 until plan.blockCount)
+        return copy(completed = if (index in completed) completed - index else completed + index)
+    }
 
-    fun save(date: LocalDate, mask: Int) {
-        prefs.edit().putInt(key(date), StepTracker.normalized(mask)).apply()
+    fun withPlan(newPlan: StepPlan): DailyProgress =
+        copy(plan = newPlan, completed = completed.filterTo(mutableSetOf()) { it < newPlan.blockCount })
+
+    companion object {
+        fun fromLegacy(date: LocalDate, mask: Int): DailyProgress = DailyProgress(
+            date = date,
+            completed = (0 until 10).filterTo(mutableSetOf()) { mask and (1 shl it) != 0 }
+        )
     }
 }
