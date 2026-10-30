@@ -2,6 +2,7 @@ package com.ostwaldviz.pasosdiarios
 
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -167,11 +168,59 @@ class DailyRepositoryTest {
         val changed = repository().changePlan(date, StepPlan.forTarget(12_000, 7))
         assertEquals(setOf(0, 6), changed.completed)
         assertEquals(3_429, changed.totalSteps)
-        assertEquals("3|7|1714|2|0,6", storage.values["day_v2_$firstDay"])
-        assertEquals("3|7|1714|2", storage.values["default_plan_v2"])
+        assertEquals("4|7|1714|2|08:00|20:00|0,6", storage.values["day_v2_$firstDay"])
+        assertEquals("4|7|1714|2|08:00|20:00", storage.values["default_plan_v2"])
         assertEquals(changed, repository().current())
         date = date.plusDays(1)
         assertEquals(changed.plan, repository().current().plan)
+    }
+
+    @Test fun scheduleChangesPersistAcrossDaysAndLeavePastRecordsUntouched() {
+        val original = repository().toggle(date, 2)
+        date = date.plusDays(1)
+        val scheduled = StepPlan.forTarget(12_000, 7)
+            .withTimeRange(LocalTime.of(7, 30), LocalTime.of(19, 45))
+        val today = repository().changePlan(date, scheduled).toggle(0)
+        assertEquals(1_715, today.totalSteps)
+        assertEquals(LocalTime.of(7, 30), today.plan.suggestedTime(0))
+        assertEquals(LocalTime.of(19, 45), today.plan.suggestedTime(6))
+        assertEquals("4|7|1714|2|07:30|19:45|0", storage.values["day_v2_$date"])
+        assertEquals(original, repository().history().last())
+        date = date.plusDays(1)
+        assertEquals(scheduled, repository().current().plan)
+        assertTrue(repository().current().completed.isEmpty())
+        assertEquals(StepPlan(), repository().history().last().plan)
+    }
+
+    @Test fun olderV3RecordsAndDefaultsKeepTheirOriginalSchedule() {
+        storage.values["day_v2_$firstDay"] = "3|7|1714|2|0,6"
+        storage.values["default_plan_v2"] = "3|7|1714|2"
+        val original = repository().current()
+        assertEquals(12_000, original.plan.targetSteps)
+        assertEquals(LocalTime.of(8, 0), original.plan.startTime)
+        assertEquals(LocalTime.of(20, 0), original.plan.endTime)
+        assertEquals(3_429, original.totalSteps)
+        date = date.plusDays(1)
+        assertEquals(original.plan, repository().current().plan)
+        assertEquals(original, repository().history().last())
+    }
+
+    @Test fun scheduleOnlyChangePreservesExistingCompletedBlocksAndStepCounts() {
+        val before = repository().toggle(date, 4)
+        val after = repository().changePlan(date, before.plan.withTimeRange(
+            LocalTime.of(9, 15), LocalTime.of(21, 15)
+        ))
+        assertEquals(before.completed, after.completed)
+        assertEquals(before.totalSteps, after.totalSteps)
+        assertEquals(before.plan.targetSteps, after.plan.targetSteps)
+        assertEquals(LocalTime.of(9, 15), repository().current().plan.startTime)
+    }
+
+    @Test fun corruptedOrInvertedStoredScheduleCannotOverrideSavedLegacyData() {
+        storage.values["blocks_$firstDay"] = 3
+        storage.values["day_v2_$firstDay"] = "4|10|1000|0|20:00|08:00|0"
+        assertEquals(setOf(0, 1), repository().current().completed)
+        assertEquals(2_000, repository().current().totalSteps)
     }
 
 }
