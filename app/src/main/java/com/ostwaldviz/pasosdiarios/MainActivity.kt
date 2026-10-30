@@ -304,11 +304,11 @@ private fun SessionTile(record: DailyProgress, index: Int, onToggle: (() -> Unit
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(record.plan.suggestedTime(index).format(DateTimeFormatter.ofPattern("h:mm a", mexicanLocale)),
                     fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = if (completed) Mint else MainText)
-                Text("Bloque ${index + 1} · +${formatNumber(record.plan.stepsPerBlock)} pasos",
+                Text("Bloque ${index + 1} · +${formatNumber(record.plan.stepsForBlock(index))} pasos",
                     fontSize = 12.sp, color = SecondaryText)
             }
             Column(Modifier.widthIn(max = 120.dp), horizontalAlignment = Alignment.End) {
-                Text(formatNumber((index + 1) * record.plan.stepsPerBlock), fontSize = 16.sp,
+                Text(formatNumber(record.plan.cumulativeSteps(index)), fontSize = 16.sp,
                     fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(if (completed) "Completado" else "Pendiente", fontSize = 11.sp,
                     color = if (completed) Mint else SecondaryText)
@@ -342,7 +342,7 @@ private fun HistoryScreen(history: List<DailyProgress>, today: LocalDate, onSele
                     LinearProgressIndicator(progress = { record.progress }, modifier = Modifier.fillMaxWidth(),
                         color = Mint, trackColor = BorderColor)
                     Text("${record.completedCount} de ${record.plan.blockCount} bloques · " +
-                        "${formatNumber(record.plan.stepsPerBlock)} pasos por bloque · ${record.percent}%",
+                        "${formatStepsPerBlock(record.plan)} pasos por bloque · ${record.percent}%",
                         fontSize = 12.sp, color = SecondaryText)
                     Text("Ver bloques ›", color = Mint, fontSize = 13.sp)
                 }
@@ -373,18 +373,78 @@ private fun HistoryDetail(record: DailyProgress, today: LocalDate, onBack: () ->
 
 @Composable
 private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (StepPlan) -> Unit) {
+    var target by rememberSaveable { mutableStateOf(record.plan.targetSteps.toString()) }
     var blocks by rememberSaveable { mutableStateOf(record.plan.blockCount.toString()) }
     var steps by rememberSaveable { mutableStateOf(record.plan.stepsPerBlock.toString()) }
-    val plan = runCatching { StepPlan(blocks.toInt(), steps.toInt()) }.getOrNull()
+    var extraSteps by rememberSaveable { mutableIntStateOf(record.plan.extraSteps) }
+
+    // Total is the primary input. Changing the block count redistributes the same goal.
+    fun changeTarget(value: String) {
+        target = value
+        val count = blocks.toIntOrNull()
+        val goal = value.toIntOrNull()
+        val next = if (count != null && goal != null)
+            runCatching { StepPlan.forTarget(goal, count) }.getOrNull() else null
+        if (next != null) {
+            steps = next.stepsPerBlock.toString()
+            extraSteps = next.extraSteps
+        }
+    }
+
+    fun changeBlocks(value: String) {
+        blocks = value
+        val count = value.toIntOrNull()
+        val goal = target.toIntOrNull()
+        val next = if (count != null && goal != null)
+            runCatching { StepPlan.forTarget(goal, count) }.getOrNull() else null
+        if (next != null) {
+            steps = next.stepsPerBlock.toString()
+            extraSteps = next.extraSteps
+        }
+    }
+
+    // Changing steps per block is intentionally different: it updates the goal.
+    fun changeSteps(value: String) {
+        steps = value
+        val count = blocks.toIntOrNull()
+        val perBlock = value.toIntOrNull()
+        val next = if (count != null && perBlock != null)
+            runCatching { StepPlan(count, perBlock) }.getOrNull() else null
+        if (next != null) {
+            target = next.targetSteps.toString()
+            extraSteps = 0
+        }
+    }
+
+    val plan = runCatching {
+        StepPlan(blocks.toInt(), steps.toInt(), extraSteps).also {
+            require(it.targetSteps == target.toInt())
+        }
+    }.getOrNull()
+    val minimumTarget = blocks.toIntOrNull()?.takeIf { it in 1..StepPlan.MAX_BLOCKS } ?: 1
+    val maximumPerBlock = StepPlan.MAX_TOTAL_STEPS / minimumTarget
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = CardBackground,
         title = { Text("Tu meta diaria") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Elige cuántos bloques quieres y cuántos pasos vale cada uno.")
-                NumberSetting("Cantidad de bloques", "block-count", blocks, StepPlan.MAX_BLOCKS, 1) { blocks = it }
-                NumberSetting("Pasos por bloque", "steps-per-block", steps, StepPlan.MAX_STEPS_PER_BLOCK, 100) { steps = it }
+                Text("Cambia tu meta o la cantidad de bloques y los pasos se repartirán automáticamente. Si cambias los pasos por bloque, se actualizará la meta.")
+                NumberSetting("Meta diaria (pasos)", "target-steps", target,
+                    StepPlan.MAX_TOTAL_STEPS, 1_000, minimumTarget) { changeTarget(it) }
+                NumberSetting("Cantidad de bloques", "block-count", blocks,
+                    StepPlan.MAX_BLOCKS, 1) { changeBlocks(it) }
+                NumberSetting("Pasos por bloque", "steps-per-block", steps,
+                    maximumPerBlock, 100) { changeSteps(it) }
+                if (plan != null && plan.extraSteps > 0) {
+                    Text(
+                        "Para alcanzar la meta exacta: ${plan.extraSteps} bloques de " +
+                            "${formatNumber(plan.stepsPerBlock + 1)} pasos y " +
+                            "${plan.blockCount - plan.extraSteps} de ${formatNumber(plan.stepsPerBlock)}.",
+                        color = SecondaryText, fontSize = 12.sp
+                    )
+                }
                 Surface(color = TileCompleted, shape = RoundedCornerShape(14.dp)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("META TOTAL", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -392,6 +452,10 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
                             fontWeight = FontWeight.Bold, fontSize = 23.sp)
                     }
                 }
+                if (plan == null) Text(
+                    "La meta debe ser válida y alcanzar para dar al menos un paso por bloque.",
+                    color = MaterialTheme.colorScheme.error, fontSize = 12.sp
+                )
                 Text("Se aplicará a hoy y a los próximos días. Los días anteriores conservarán su meta.", fontSize = 13.sp)
                 if (plan != null && plan != record.plan) {
                     val remaining = record.withPlan(plan)
@@ -413,36 +477,51 @@ private fun PlanDialog(record: DailyProgress, onDismiss: () -> Unit, onSave: (St
 }
 
 @Composable
-private fun NumberSetting(label: String, tag: String, value: String, maximum: Int, increment: Int, onChange: (String) -> Unit) {
+private fun NumberSetting(
+    label: String,
+    tag: String,
+    value: String,
+    maximum: Int,
+    increment: Int,
+    minimum: Int = 1,
+    onChange: (String) -> Unit
+) {
     val number = value.toIntOrNull()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     Column {
         Text(label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onChange(((number ?: 1) - increment).coerceIn(1, maximum).toString()) },
-                enabled = number == null || number > 1) {
+            IconButton(onClick = { onChange(((number ?: minimum) - increment).coerceIn(minimum, maximum).toString()) },
+                enabled = number == null || number > minimum) {
                 Icon(Icons.Outlined.Remove, contentDescription = "Reducir $label")
             }
             OutlinedTextField(
-                value = value, onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) onChange(it) },
+                value = value,
+                onValueChange = {
+                    if (it.length <= maximum.toString().length && it.all(Char::isDigit)) onChange(it)
+                },
                 modifier = Modifier.weight(1f).testTag(tag), singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus(); keyboard?.hide() }),
-                isError = number == null || number !in 1..maximum,
+                isError = number == null || number !in minimum..maximum,
                 label = { Text(label) }
             )
-            IconButton(onClick = { onChange(((number ?: 0) + increment).coerceIn(1, maximum).toString()) },
+            IconButton(onClick = { onChange(((number ?: minimum) + increment).coerceIn(minimum, maximum).toString()) },
                 enabled = number == null || number < maximum) {
                 Icon(Icons.Outlined.Add, contentDescription = "Aumentar $label")
             }
         }
-        Text("De 1 a ${formatNumber(maximum)}", fontSize = 11.sp, color = SecondaryText)
+        Text("De ${formatNumber(minimum)} a ${formatNumber(maximum)}", fontSize = 11.sp, color = SecondaryText)
     }
 }
 
 private fun dateLabel(date: LocalDate): String = date.format(
     DateTimeFormatter.ofPattern("EEEE d 'de' MMMM 'de' yyyy", mexicanLocale)
 ).replaceFirstChar { it.uppercaseChar() }
+
+private fun formatStepsPerBlock(plan: StepPlan): String =
+    if (plan.extraSteps == 0) formatNumber(plan.stepsPerBlock)
+    else "${formatNumber(plan.stepsPerBlock)}–${formatNumber(plan.stepsPerBlock + 1)}"
 
 private fun formatNumber(number: Int): String = NumberFormat.getIntegerInstance(mexicanLocale).format(number)
