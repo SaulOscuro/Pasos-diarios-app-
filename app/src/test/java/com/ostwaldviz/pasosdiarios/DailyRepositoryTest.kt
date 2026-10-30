@@ -142,4 +142,36 @@ class DailyRepositoryTest {
         assertEquals(original, repository().current())
         assertEquals(listOf(original), repository().history())
     }
+    @Test fun exactTargetSurvivesRestartAndFutureDaysWithoutChangingPastHistory() {
+        val original = repository().toggle(date, 9)
+        date = date.plusDays(1)
+        val goal = StepPlan.forTarget(12_000, 7)
+        val current = repository().changePlan(date, goal).toggle(0)
+        assertEquals(1_715, current.totalSteps)
+        assertEquals(goal, repository().current().plan)
+        assertEquals(12_000, repository().current().plan.targetSteps)
+        assertEquals(original, repository().history().last())
+        date = date.plusDays(1)
+        assertEquals(goal, repository().current().plan)
+        assertTrue(repository().current().completed.isEmpty())
+        assertEquals(12_000, repository().current().plan.targetSteps)
+        assertEquals(10_000, repository().history().last().plan.targetSteps)
+    }
+
+    @Test fun previouslySavedV2PlansAndRecordsStillLoadAndUpgradeToV3() {
+        storage.values["day_v2_$firstDay"] = "2|7|1500|0,6"
+        storage.values["default_plan_v2"] = "2|7|1500"
+        val previous = repository().current()
+        assertEquals(StepPlan(7, 1_500), previous.plan)
+        assertEquals(3_000, previous.totalSteps)
+        val changed = repository().changePlan(date, StepPlan.forTarget(12_000, 7))
+        assertEquals(setOf(0, 6), changed.completed)
+        assertEquals(3_429, changed.totalSteps)
+        assertEquals("3|7|1714|2|0,6", storage.values["day_v2_$firstDay"])
+        assertEquals("3|7|1714|2", storage.values["default_plan_v2"])
+        assertEquals(changed, repository().current())
+        date = date.plusDays(1)
+        assertEquals(changed.plan, repository().current().plan)
+    }
+
 }
