@@ -54,7 +54,7 @@ class StepTrackerTest {
     }
 
     @Test fun invalidPlansAndBlockIndicesAreRejected() {
-        listOf(0 to 1_000, 101 to 1_000, 10 to 0, 10 to 100_001).forEach { (blocks, steps) ->
+        listOf(0 to 1_000, 101 to 1_000, 10 to 0, 10 to 1_000_001).forEach { (blocks, steps) ->
             assertThrows(IllegalArgumentException::class.java) { StepPlan(blocks, steps) }
         }
         assertThrows(IllegalArgumentException::class.java) { DailyProgress(date).toggle(-1) }
@@ -72,4 +72,54 @@ class StepTrackerTest {
             assertTrue(times.zipWithNext().all { (a, b) -> a < b })
         }
     }
+    @Test fun editingGoalKeepsBlockCountAndRedistributesSteps() {
+        val plan = StepPlan().withTargetSteps(15_000)
+        assertEquals(10, plan.blockCount)
+        assertEquals(1_500, plan.stepsPerBlock)
+        assertEquals(0, plan.extraSteps)
+        assertEquals(15_000, plan.targetSteps)
+        assertEquals(15_000, plan.cumulativeSteps(9))
+    }
+
+    @Test fun editingBlockCountPreservesExactGoalEvenWhenDivisionHasRemainder() {
+        val plan = StepPlan().withTargetSteps(12_000).withBlockCount(7)
+        assertEquals(12_000, plan.targetSteps)
+        assertEquals(1_714, plan.stepsPerBlock)
+        assertEquals(2, plan.extraSteps)
+        assertEquals(1_715, plan.stepsForBlock(0))
+        assertEquals(1_715, plan.stepsForBlock(1))
+        assertEquals(1_714, plan.stepsForBlock(2))
+        assertEquals(12_000, plan.cumulativeSteps(6))
+        assertEquals(12_000, (0 until 7).sumOf { plan.stepsForBlock(it) })
+        val progress = DailyProgress(date, plan).toggle(0).toggle(6)
+        assertEquals(3_429, progress.totalSteps)
+        assertEquals(28, progress.percent)
+    }
+
+    @Test fun editingStepsPerBlockUpdatesGoalAndResetsTheRemainder() {
+        val plan = StepPlan.forTarget(12_000, 7).withStepsPerBlock(2_000)
+        assertEquals(7, plan.blockCount)
+        assertEquals(14_000, plan.targetSteps)
+        assertEquals(0, plan.extraSteps)
+        assertEquals(2_000, plan.stepsForBlock(6))
+        assertEquals(14_000, plan.cumulativeSteps(6))
+    }
+
+    @Test fun goalAndBlocksMayBeChangedRepeatedlyWithoutLosingSteps() {
+        val plan = StepPlan.forTarget(20_000).withBlockCount(7).withBlockCount(1)
+        assertEquals(20_000, plan.targetSteps)
+        assertEquals(20_000, plan.stepsForBlock(0))
+        assertEquals(20_000, plan.withBlockCount(100).targetSteps)
+        assertEquals(100, plan.withBlockCount(100).blockCount)
+    }
+
+    @Test fun remainderAndGoalLimitsAreValidated() {
+        assertThrows(IllegalArgumentException::class.java) { StepPlan(7, 1_000, 7) }
+        assertThrows(IllegalArgumentException::class.java) { StepPlan(7, 1_000, -1) }
+        assertThrows(IllegalArgumentException::class.java) { StepPlan.forTarget(6, 7) }
+        assertThrows(IllegalArgumentException::class.java) { StepPlan.forTarget(10_000_001) }
+        assertEquals(10_000_000, StepPlan(100, 100_000).targetSteps)
+        assertEquals(10_000_000, StepPlan.forTarget(10_000_000, 1).targetSteps)
+    }
+
 }
