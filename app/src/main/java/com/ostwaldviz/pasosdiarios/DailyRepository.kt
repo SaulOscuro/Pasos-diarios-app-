@@ -68,22 +68,36 @@ class DailyRepository(
         storage.write(mapOf(recordKey(record.date) to encode(record)))
     }
 
-    // Versioned, dependency-free format: version|count|steps[|completed indices].
-    private fun encodePlan(plan: StepPlan) = "2|${plan.blockCount}|${plan.stepsPerBlock}"
+    // The existing storage keys stay unchanged for in-place upgrades. A v3 payload adds
+    // the one-step remainder, while v2 records and legacy bitmasks remain readable.
+    private fun encodePlan(plan: StepPlan) =
+        "3|${plan.blockCount}|${plan.stepsPerBlock}|${plan.extraSteps}"
+
     private fun encode(record: DailyProgress) =
         "${encodePlan(record.plan)}|${record.completed.sorted().joinToString(",")}"
 
     private fun decodePlan(value: String?): StepPlan? = runCatching {
         val parts = requireNotNull(value).split('|')
-        require(parts.size == 3 && parts[0] == "2")
-        StepPlan(parts[1].toInt(), parts[2].toInt())
+        when {
+            parts.size == 3 && parts[0] == "2" ->
+                StepPlan(parts[1].toInt(), parts[2].toInt())
+            parts.size == 4 && parts[0] == "3" ->
+                StepPlan(parts[1].toInt(), parts[2].toInt(), parts[3].toInt())
+            else -> error("Unsupported plan version")
+        }
     }.getOrNull()
 
     private fun decode(date: LocalDate, value: String?): DailyProgress? = runCatching {
         val parts = requireNotNull(value).split('|')
-        require(parts.size == 4)
-        val plan = requireNotNull(decodePlan(parts.take(3).joinToString("|")))
-        val completed = if (parts[3].isEmpty()) emptySet() else parts[3].split(',').map { it.toInt() }.toSet()
+        val planFields = when (parts.firstOrNull()) {
+            "2" -> 3
+            "3" -> 4
+            else -> error("Unsupported record version")
+        }
+        require(parts.size == planFields + 1)
+        val plan = requireNotNull(decodePlan(parts.take(planFields).joinToString("|")))
+        val last = parts.last()
+        val completed = if (last.isEmpty()) emptySet() else last.split(',').map { it.toInt() }.toSet()
         DailyProgress(date, plan, completed)
     }.getOrNull()
 }
