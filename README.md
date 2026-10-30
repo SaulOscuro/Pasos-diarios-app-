@@ -1,11 +1,11 @@
 # Pasos Diarios
 
-Aplicación **nativa de Android** hecha con Kotlin y Jetpack Compose para repartir tu meta diaria en bloques de pasos configurables. El plan inicial sigue siendo de diez bloques de 1,000 pasos.
+Aplicación **nativa de Android** hecha con Kotlin y Jetpack Compose para ajustar directamente tu meta diaria y repartirla en bloques. El plan inicial sigue siendo de diez bloques de 1,000 pasos.
 
-## Funcionalidades de la v1.1
+## Funcionalidades de la v1.2
 
-- **Meta configurable**: de 1 a 100 bloques y de 1 a 100,000 pasos por bloque. Por ejemplo, 6 × 500 = 3,000 pasos o 12 × 1,500 = 18,000 pasos.
-- **Ajustar bloques y pasos** permite añadir o retirar bloques, cambiar los pasos de cada uno y revisar la meta total antes de guardar.
+- **Meta total editable**: define directamente 10,000, 12,000, 15,000, 20,000 o hasta 10,000,000 pasos. El objetivo es el valor principal al organizar los bloques.
+- **Ajustar bloques y pasos** permite elegir entre 1 y 100 bloques, sin cambiar tu meta, o editar los pasos por bloque para recalcularla. Cuando la meta no se divide exactamente, la app distribuye la diferencia de un paso entre bloques.
 - **Bloques tocables** que puedes marcar y desmarcar en cualquier orden, con una barra segmentada que se adapta a la cantidad elegida.
 - **Horarios sugeridos**: se mantiene el horario original al elegir diez bloques; para otras cantidades se distribuyen entre las 8:00 y las 20:00 (un solo bloque a las 8:00).
 - **Guardado en el dispositivo** al tocar cada bloque, incluso si cierras la app.
@@ -21,11 +21,13 @@ Aplicación **nativa de Android** hecha con Kotlin y Jetpack Compose para repart
 
 El progreso se guarda al marcar cada bloque, sin esperar a las doce. A las **00:00 de la hora local** empieza un registro vacío con la última configuración elegida, conservando el día anterior. Con la app abierta, la pantalla cambia al llegar la medianoche; al volver de segundo plano o abrirla después de varios días, carga inmediatamente la fecha actual. No necesita alarmas ni ejecutarse en segundo plano. El historial contiene los días en que se utilizó la app; no inventa registros para fechas sin uso.
 
-### Cambiar los bloques
+### Cambiar tu meta y los bloques
 
-Los cambios se aplican a **hoy y a los próximos días**. Se mantienen las marcas de los bloques que siguen existiendo. Si retiras bloques que estaban completados, el diálogo indica cuántas marcas se quitarán. Cambiar los pasos por bloque recalcula el total de hoy según las marcas conservadas; el diálogo muestra el resultado antes de guardar. Cancelar conserva la configuración y el progreso originales.
+En **Ajustar bloques y pasos**, modifica la **Meta diaria (pasos)** para repartir automáticamente el total entre los bloques actuales. Si modificas **Cantidad de bloques**, la meta total permanece igual y la cantidad de pasos por bloque se ajusta. Si editas **Pasos por bloque**, se actualiza la meta total según la cantidad de bloques, como antes. Por ejemplo, 12,000 pasos en 7 bloques se distribuyen en 2 bloques de 1,715 pasos y 5 de 1,714. Cada bloque muestra su objetivo exacto.
 
-La v1.1 recupera automáticamente los registros de diez bloques de la v1.0 si se instala como actualización conservando el almacenamiento de la app.
+Los cambios se aplican a **hoy y a los próximos días**. Se mantienen las marcas de los bloques que siguen existiendo. Si retiras bloques que estaban completados, el diálogo indica cuántas marcas se quitarán. Recalcular el plan modifica los pasos de hoy según las marcas conservadas; el diálogo muestra el resultado antes de guardar. Cancelar conserva la configuración y el progreso originales.
+
+La v1.2 conserva los registros de la v1.1 y recupera automáticamente los registros de diez bloques de la v1.0 si se instala como actualización conservando el almacenamiento de la app. Los días antiguos mantienen su meta original.
 
 ## Descargar el APK
 
