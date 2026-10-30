@@ -1,6 +1,7 @@
 package com.ostwaldviz.pasosdiarios
 
 import java.time.LocalDate
+import java.time.LocalTime
 
 interface ProgressStorage {
     fun keys(): Set<String>
@@ -68,10 +69,10 @@ class DailyRepository(
         storage.write(mapOf(recordKey(record.date) to encode(record)))
     }
 
-    // The existing storage keys stay unchanged for in-place upgrades. A v3 payload adds
-    // the one-step remainder, while v2 records and legacy bitmasks remain readable.
+    // Keep original keys for in-place upgrades. A v4 record adds start/end times.
+    // Legacy masks, v2 and v3 plans continue to decode with their original schedule.
     private fun encodePlan(plan: StepPlan) =
-        "3|${plan.blockCount}|${plan.stepsPerBlock}|${plan.extraSteps}"
+        "4|${plan.blockCount}|${plan.stepsPerBlock}|${plan.extraSteps}|${plan.startTime}|${plan.endTime}"
 
     private fun encode(record: DailyProgress) =
         "${encodePlan(record.plan)}|${record.completed.sorted().joinToString(",")}"
@@ -83,6 +84,9 @@ class DailyRepository(
                 StepPlan(parts[1].toInt(), parts[2].toInt())
             parts.size == 4 && parts[0] == "3" ->
                 StepPlan(parts[1].toInt(), parts[2].toInt(), parts[3].toInt())
+            parts.size == 6 && parts[0] == "4" ->
+                StepPlan(parts[1].toInt(), parts[2].toInt(), parts[3].toInt(),
+                    LocalTime.parse(parts[4]), LocalTime.parse(parts[5]))
             else -> error("Unsupported plan version")
         }
     }.getOrNull()
@@ -92,12 +96,13 @@ class DailyRepository(
         val planFields = when (parts.firstOrNull()) {
             "2" -> 3
             "3" -> 4
+            "4" -> 6
             else -> error("Unsupported record version")
         }
         require(parts.size == planFields + 1)
         val plan = requireNotNull(decodePlan(parts.take(planFields).joinToString("|")))
-        val last = parts.last()
-        val completed = if (last.isEmpty()) emptySet() else last.split(',').map { it.toInt() }.toSet()
+        val completed = if (parts.last().isEmpty()) emptySet()
+            else parts.last().split(',').map { it.toInt() }.toSet()
         DailyProgress(date, plan, completed)
     }.getOrNull()
 }
