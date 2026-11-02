@@ -19,7 +19,7 @@ object BackupArchive {
             records.put(JSONObject().apply {
                 put("date", day.date.toString())
                 put("plan", planToJson(day.plan))
-                put("checkedBlocks", JSONArray().apply { day.completed.sorted().forEach(::put) })
+                put("checkedBlocks", JSONArray().apply { day.completed.sorted().forEach { put(it) } })
                 put("manualSteps", day.manualSteps ?: JSONObject.NULL)
                 put("totalSteps", day.totalSteps)
             })
