@@ -134,7 +134,7 @@ class DailyRepository(
             "4", "5" -> 6
             else -> error("Unsupported record version")
         }
-        require(parts.size == planFields + if (version == "5") 2 else 1)
+        require(parts.size == planFields + (if (version == "5") 2 else 1))
         val encodedPlan = parts.take(planFields).toMutableList()
         if (version == "5") encodedPlan[0] = "4"
         val plan = requireNotNull(decodePlan(encodedPlan.joinToString("|")))
