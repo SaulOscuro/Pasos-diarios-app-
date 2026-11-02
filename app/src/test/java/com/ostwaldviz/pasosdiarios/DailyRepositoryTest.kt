@@ -224,4 +224,106 @@ class DailyRepositoryTest {
         assertEquals(2_000, repository().current().totalSteps)
     }
 
+
+    @Test fun missedHistoricalDayCanBeAddedWithExactStepsAboveTheTarget() {
+        val originalToday = repository().current()
+        val yesterday = date.minusDays(1)
+        val saved = repository().recordPastSteps(yesterday, 12_345)
+        assertEquals(12_345, saved.totalSteps)
+        assertEquals(10_000, saved.plan.targetSteps)
+        assertEquals(10, saved.completedCount)
+        assertEquals(100, saved.percent)
+        assertEquals(1f, saved.progress)
+        assertEquals(originalToday, repository().current())
+        assertEquals(listOf(date, yesterday), repository().history().map { it.date })
+
+        val correction = repository().recordPastSteps(yesterday, 2_750)
+        assertEquals(2_750, correction.totalSteps)
+        assertEquals(setOf(0, 1), correction.completed)
+        assertEquals(27, correction.percent)
+        assertEquals(correction, repository().history().last())
+
+        val changedBlocks = repository().togglePastBlock(yesterday, 6)
+        assertEquals(null, changedBlocks.manualSteps)
+        assertEquals(setOf(0, 1, 6), changedBlocks.completed)
+        assertEquals(3_000, changedBlocks.totalSteps)
+        assertEquals(originalToday, repository().current())
+    }
+
+    @Test fun editingPastDaysKeepsOriginalPlanAndNeverChangesDefaults() {
+        val past = date.minusDays(3)
+        val previous = repository().recordPastSteps(past, 11_400)
+        val todayPlan = StepPlan.forTarget(12_000, 7)
+        repository().changePlan(date, todayPlan)
+        val changed = repository().recordPastSteps(past, 800)
+        assertEquals(previous.plan, changed.plan)
+        assertEquals(800, changed.totalSteps)
+        assertEquals(0, changed.completedCount)
+        assertEquals(todayPlan, repository().current().plan)
+        date = date.plusDays(1)
+        assertEquals(todayPlan, repository().current().plan)
+    }
+
+    @Test fun historicalEditsRejectCurrentDayFutureDatesAndOutOfRangeSteps() {
+        repository().current()
+        assertThrows(IllegalArgumentException::class.java) {
+            repository().recordPastSteps(date, 1_000)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            repository().recordPastSteps(date.plusDays(1), 1_000)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            repository().recordPastSteps(date.minusDays(1), -1)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            repository().recordPastSteps(date.minusDays(1), StepPlan.MAX_TOTAL_STEPS + 1)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            repository().togglePastBlock(date.minusDays(1), 0)
+        }
+        assertEquals(1, repository().history().size)
+    }
+
+    @Test fun jsonBackupRestoresExactCountsHistoricPlansAndDefaultWithoutErasingOtherDays() {
+        val past = date.minusDays(2)
+        val recorded = repository().recordPastSteps(past, 15_321)
+        val newPlan = StepPlan.forTarget(12_000, 7)
+            .withTimeRange(LocalTime.of(9, 0), LocalTime.of(21, 0))
+        repository().changePlan(date, newPlan)
+        val current = repository().toggle(date, 3)
+        val backup = BackupArchive.decode(repository().exportBackup())
+        assertEquals(setOf(past, date), backup.days.map { it.date }.toSet())
+        assertEquals(newPlan, backup.defaultPlan)
+
+        val storage2 = MemoryStorage()
+        val targetRepo = DailyRepository(storage2) { date }
+        val unrelated = targetRepo.recordPastSteps(date.minusDays(5), 111)
+        targetRepo.recordPastSteps(past, 222)
+        targetRepo.restoreBackup(backup)
+
+        assertEquals(recorded, targetRepo.history().find { it.date == past })
+        assertEquals(current, targetRepo.current())
+        assertEquals(unrelated, targetRepo.history().find { it.date == unrelated.date })
+        assertEquals(15_321, targetRepo.history().find { it.date == past }?.manualSteps)
+        date = date.plusDays(1)
+        assertEquals(newPlan, targetRepo.current().plan)
+    }
+
+    @Test fun malformedOrDuplicatedBackupIsRejectedBeforeAnyStorageChanges() {
+        val old = repository().current()
+        val json = repository().exportBackup()
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupArchive.decode(json.replace("pasos-diarios", "another-app"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupArchive.decode("{not-json")
+        }
+        val parsed = BackupArchive.decode(json)
+        assertThrows(IllegalArgumentException::class.java) {
+            repository().restoreBackup(parsed.copy(days = parsed.days + parsed.days.first()))
+        }
+        assertEquals(old, repository().current())
+        assertEquals(listOf(old), repository().history())
+    }
+
 }
