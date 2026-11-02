@@ -445,7 +445,8 @@ private fun HistoryScreen(
     onExport: () -> Unit,
     onImport: () -> Unit
 ) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 24.dp, 20.dp, 28.dp),
+    LazyColumn(Modifier.fillMaxSize().testTag("history-list"),
+        contentPadding = PaddingValues(20.dp, 24.dp, 20.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
