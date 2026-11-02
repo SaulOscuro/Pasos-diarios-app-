@@ -387,6 +387,11 @@ private fun ProgressCard(record: DailyProgress) {
             }
             Text("${record.completedCount} de ${record.plan.blockCount} bloques · " +
                 "${record.plan.blockCount - record.completedCount} pendientes", fontSize = 12.sp, color = SecondaryText)
+            if (record.manualSteps != null) {
+                LinearProgressIndicator(progress = { record.progress }, modifier = Modifier.fillMaxWidth(),
+                    color = Mint, trackColor = BorderColor)
+                Text("Cifra exacta guardada manualmente", fontSize = 12.sp, color = SecondaryText)
+            }
         }
     }
 }
@@ -432,7 +437,14 @@ private fun SessionTile(record: DailyProgress, index: Int, onToggle: (() -> Unit
 }
 
 @Composable
-private fun HistoryScreen(history: List<DailyProgress>, today: LocalDate, onSelect: (DailyProgress) -> Unit) {
+private fun HistoryScreen(
+    history: List<DailyProgress>,
+    today: LocalDate,
+    onSelect: (DailyProgress) -> Unit,
+    onAdd: () -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit
+) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 24.dp, 20.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -442,6 +454,38 @@ private fun HistoryScreen(history: List<DailyProgress>, today: LocalDate, onSele
                     color = SecondaryText, fontSize = 14.sp)
                 Text("${history.size} días registrados · Del más reciente al más antiguo",
                     color = SecondaryText, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                Button(
+                    onClick = onAdd, modifier = Modifier.fillMaxWidth().testTag("add-past-day"),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Outlined.Add, null, Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Añadir o corregir un día anterior")
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onExport, modifier = Modifier.weight(1f).testTag("export-history"),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp)
+                    ) {
+                        Icon(Icons.Outlined.FileUpload, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Exportar", fontSize = 13.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onImport, modifier = Modifier.weight(1f).testTag("import-history"),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp)
+                    ) {
+                        Icon(Icons.Outlined.FileDownload, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Restaurar", fontSize = 13.sp)
+                    }
+                }
+                Text(
+                    "Exporta tu historial en JSON antes de desinstalar. " +
+                        "Para actualizar sin perder registros, instala el APK encima del anterior.",
+                    color = SecondaryText, fontSize = 12.sp
+                )
             }
         }
         items(history, key = { it.date.toString() }) { record ->
@@ -468,7 +512,13 @@ private fun HistoryScreen(history: List<DailyProgress>, today: LocalDate, onSele
 }
 
 @Composable
-private fun HistoryDetail(record: DailyProgress, today: LocalDate, onBack: () -> Unit) {
+private fun HistoryDetail(
+    record: DailyProgress,
+    today: LocalDate,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onToggle: (Int) -> Unit
+) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 16.dp, 20.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
@@ -479,16 +529,86 @@ private fun HistoryDetail(record: DailyProgress, today: LocalDate, onBack: () ->
         item { Text(dateLabel(record.date), fontSize = 25.sp, fontWeight = FontWeight.Bold) }
         item {
             Text(if (record.date == today) "En curso. Puedes marcar tus bloques en Hoy."
-                else "Registro guardado · Solo consulta", color = SecondaryText, fontSize = 13.sp)
+                else "Registro guardado · Puedes corregir pasos o bloques", color = SecondaryText, fontSize = 13.sp)
         }
         item { ProgressCard(record) }
+        if (record.date.isBefore(today)) {
+            item {
+                OutlinedButton(
+                    onClick = onEdit, modifier = Modifier.fillMaxWidth().testTag("edit-past-steps")
+                ) {
+                    Icon(Icons.Outlined.Edit, null, Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Editar pasos exactos")
+                }
+            }
+        }
         item {
             Text("Horario: ${formatTime(record.plan.startTime)} a ${formatTime(record.plan.endTime)}",
                 fontSize = 13.sp, color = SecondaryText)
         }
         item { BlockHeading(record.plan.blockCount) }
-        items(record.plan.blockCount, key = { it }) { index -> SessionTile(record, index) }
+        items(record.plan.blockCount, key = { it }) { index ->
+            SessionTile(record, index,
+                onToggle = if (record.date.isBefore(today)) ({ onToggle(index) }) else null)
+        }
+        if (record.date.isBefore(today)) {
+            item {
+                Text("Si cambias un bloque, la cifra exacta se recalculará a partir de las casillas.",
+                    fontSize = 12.sp, color = SecondaryText)
+            }
+        }
     }
+}
+
+/** A missed day can be entered directly from its pedometer count, even above the goal. */
+@Composable
+private fun ManualStepsDialog(
+    date: LocalDate,
+    existing: DailyProgress?,
+    onDismiss: () -> Unit,
+    onSave: (Int) -> Unit
+) {
+    var value by rememberSaveable(date.toString()) {
+        mutableStateOf((existing?.totalSteps ?: 0).toString())
+    }
+    val steps = value.toIntOrNull()?.takeIf { it in 0..StepPlan.MAX_TOTAL_STEPS }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardBackground,
+        title = { Text(if (existing == null) "Añadir día anterior" else "Corregir pasos") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(dateLabel(date), fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Introduce los pasos reales del contador. Puedes superar la meta; " +
+                        "se marcarán automáticamente los bloques completados.",
+                    color = SecondaryText, fontSize = 13.sp
+                )
+                OutlinedTextField(
+                    value = value, onValueChange = {
+                        if (it.length <= 8 && it.all(Char::isDigit)) value = it
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("manual-steps"),
+                    label = { Text("Pasos de ese día") },
+                    placeholder = { Text("Ejemplo: 12000") },
+                    isError = steps == null,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number, imeAction = ImeAction.Done
+                    )
+                )
+                Text(
+                    "Si después marcas o desmarcas bloques, el total se calculará por bloques.",
+                    color = SecondaryText, fontSize = 12.sp
+                )
+            }
+        },
+        confirmButton = { TextButton(
+            onClick = { steps?.let(onSave) }, enabled = steps != null
+        ) { Text("Guardar pasos") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
 }
 
 @Composable
