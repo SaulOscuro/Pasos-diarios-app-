@@ -40,7 +40,7 @@ class DailyTrackerUiTest {
         screenshot("03-custom-goal")
     }
 
-    @Test fun historicalDayShowsItsOriginalGoalAndReadOnlyBlocks() {
+    @Test fun historicalDayCanBeCorrectedAndKeepsItsOriginalGoal() {
         val today = LocalDate.now()
         val yesterday = today.minusDays(1)
         rule.activity.getSharedPreferences("pasos_diarios_v1", Context.MODE_PRIVATE).edit().clear()
@@ -57,7 +57,19 @@ class DailyTrackerUiTest {
         rule.onNodeWithText(label).performClick()
         rule.onNodeWithTag("total-steps").assertTextEquals("2,000")
         rule.onNodeWithText("Meta: 10,000 pasos").assertExists()
-        rule.onAllNodes(isToggleable()).assertCountEquals(0)
+        rule.onNodeWithTag("edit-past-steps").assertHasClickAction()
+        rule.onNodeWithTag("block-0").assertIsOn()
+        rule.onNodeWithTag("edit-past-steps").performClick()
+        rule.onNodeWithTag("manual-steps").performTextReplacement("12345")
+        rule.onNodeWithText("Guardar pasos").performClick()
+        rule.onNodeWithTag("total-steps").assertTextEquals("12,345")
+        rule.onNodeWithText("Meta: 10,000 pasos").assertExists()
+        rule.runOnIdle {
+            val stored = DailyRepository(StepPreferences(rule.activity)).history()
+                .first { it.date == yesterday }
+            assertEquals(12_345, stored.manualSteps)
+            assertEquals(10_000, stored.plan.targetSteps)
+        }
         screenshot("05-history-detail")
     }
 
