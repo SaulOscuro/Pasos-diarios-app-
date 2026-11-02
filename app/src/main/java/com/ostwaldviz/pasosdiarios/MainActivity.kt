@@ -208,7 +208,7 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
                 }
             }
         }
-        val editDate = manualEditDate?.let(LocalDate::parse)
+        val editDate = manualEditDate?.let { LocalDate.parse(it) }
         if (editDate != null) {
             ManualStepsDialog(
                 date = editDate,
