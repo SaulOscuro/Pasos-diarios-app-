@@ -56,6 +56,36 @@ class DailyRepository(
         }
     }
 
+    /** Add or correct yesterday (or any past day) without touching today's progress. */
+    fun recordPastSteps(date: LocalDate, steps: Int): DailyProgress {
+        require(date.isBefore(today())) { "Selecciona un día anterior a hoy." }
+        require(steps in 0..StepPlan.MAX_TOTAL_STEPS)
+        val record = (load(date) ?: DailyProgress(date, defaultPlan())).withRecordedSteps(steps)
+        save(record)
+        return record
+    }
+
+    /** Correct old blocks independently; tapping clears an exact manual-step override. */
+    fun togglePastBlock(date: LocalDate, index: Int): DailyProgress {
+        require(date.isBefore(today())) { "Los bloques de hoy se editan en Hoy." }
+        val record = requireNotNull(load(date)) { "El día no tiene un registro." }
+        return record.toggle(index).also { save(it) }
+    }
+
+    fun exportBackup(): String = BackupArchive.encode(defaultPlan(), history())
+
+    /** Merge by date; imported matching dates replace their old records after UI confirmation. */
+    fun restoreBackup(backup: ProgressBackup) {
+        require(backup.days.size <= 10_000)
+        require(backup.days.map { it.date }.distinct().size == backup.days.size)
+        require(backup.days.all { !it.date.isAfter(today()) }) {
+            "El respaldo contiene fechas futuras."
+        }
+        val changes = mutableMapOf(defaultPlanKey to encodePlan(backup.defaultPlan))
+        backup.days.forEach { changes[recordKey(it.date)] = encode(it) }
+        storage.write(changes)
+    }
+
     private fun defaultPlan(): StepPlan = decodePlan(storage.text(defaultPlanKey)) ?: StepPlan()
 
     private fun load(date: LocalDate): DailyProgress? {
@@ -74,8 +104,12 @@ class DailyRepository(
     private fun encodePlan(plan: StepPlan) =
         "4|${plan.blockCount}|${plan.stepsPerBlock}|${plan.extraSteps}|${plan.startTime}|${plan.endTime}"
 
-    private fun encode(record: DailyProgress) =
-        "${encodePlan(record.plan)}|${record.completed.sorted().joinToString(",")}"
+    private fun encode(record: DailyProgress): String {
+        val plan = encodePlan(record.plan)
+        val blocks = record.completed.sorted().joinToString(",")
+        return if (record.manualSteps == null) "${plan}|${blocks}"
+        else "${plan.replaceFirst("4|", "5|")}|${blocks}|${record.manualSteps}"
+    }
 
     private fun decodePlan(value: String?): StepPlan? = runCatching {
         val parts = requireNotNull(value).split('|')
@@ -93,16 +127,21 @@ class DailyRepository(
 
     private fun decode(date: LocalDate, value: String?): DailyProgress? = runCatching {
         val parts = requireNotNull(value).split('|')
-        val planFields = when (parts.firstOrNull()) {
+        val version = parts.firstOrNull()
+        val planFields = when (version) {
             "2" -> 3
             "3" -> 4
-            "4" -> 6
+            "4", "5" -> 6
             else -> error("Unsupported record version")
         }
-        require(parts.size == planFields + 1)
-        val plan = requireNotNull(decodePlan(parts.take(planFields).joinToString("|")))
-        val completed = if (parts.last().isEmpty()) emptySet()
-            else parts.last().split(',').map { it.toInt() }.toSet()
-        DailyProgress(date, plan, completed)
+        require(parts.size == planFields + if (version == "5") 2 else 1)
+        val encodedPlan = parts.take(planFields).toMutableList()
+        if (version == "5") encodedPlan[0] = "4"
+        val plan = requireNotNull(decodePlan(encodedPlan.joinToString("|")))
+        val selected = parts[planFields]
+        val completed = if (selected.isEmpty()) emptySet()
+            else selected.split(',').map { it.toInt() }.toSet()
+        val manualSteps = if (version == "5") parts[planFields + 1].toInt() else null
+        DailyProgress(date, plan, completed, manualSteps)
     }.getOrNull()
 }
