@@ -1,11 +1,14 @@
 package com.ostwaldviz.pasosdiarios
 
+import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.os.Bundle
 import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
@@ -49,6 +52,7 @@ import java.text.NumberFormat
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -81,6 +85,44 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
     var history by remember { mutableStateOf(repository.history()) }
     var tab by rememberSaveable { mutableStateOf("today") }
     var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
+    var manualEditDate by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingBackup by remember { mutableStateOf<ProgressBackup?>(null) }
+    var messageDialog by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) runCatching {
+            val output = requireNotNull(context.contentResolver.openOutputStream(uri)) {
+                "No se pudo abrir el archivo de destino."
+            }
+            output.bufferedWriter(Charsets.UTF_8).use { it.write(repository.exportBackup()) }
+        }.onSuccess { messageDialog = "Respaldo guardado. Conserva este archivo fuera de la app antes de desinstalarla." }
+            .onFailure { messageDialog = "No se pudo exportar: ${it.message}" }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) runCatching {
+            val input = requireNotNull(context.contentResolver.openInputStream(uri)) {
+                "No se pudo abrir el archivo seleccionado."
+            }
+            val json = input.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            BackupArchive.decode(json)
+        }.onSuccess { pendingBackup = it }
+            .onFailure { messageDialog = it.message ?: "No se pudo leer el respaldo." }
+    }
+
+    fun pickPastDate() {
+        val previous = LocalDate.now().minusDays(1)
+        DatePickerDialog(context, { _, year, month, day ->
+            manualEditDate = LocalDate.of(year, month + 1, day).toString()
+        }, previous.year, previous.monthValue - 1, previous.dayOfMonth).apply {
+            datePicker.maxDate = LocalDate.now().atStartOfDay(ZoneId.systemDefault())
+                .toInstant().toEpochMilli() - 1
+        }.show()
+    }
 
     fun update(record: DailyProgress) {
         current = record
@@ -148,10 +190,70 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
                             onPlanChange = { update(repository.changePlan(displayed.date, it)) }
                         )
                     }
-                    selected != null -> HistoryDetail(selected, current.date) { selectedDate = null }
-                    else -> HistoryScreen(history, current.date) { selectedDate = it.date.toString() }
+                    selected != null -> HistoryDetail(
+                        record = selected,
+                        today = current.date,
+                        onBack = { selectedDate = null },
+                        onEdit = { manualEditDate = selected.date.toString() },
+                        onToggle = { index -> update(repository.togglePastBlock(selected.date, index)) }
+                    )
+                    else -> HistoryScreen(
+                        history = history,
+                        today = current.date,
+                        onSelect = { selectedDate = it.date.toString() },
+                        onAdd = { pickPastDate() },
+                        onExport = { exportLauncher.launch("pasos-diarios-${LocalDate.now()}.json") },
+                        onImport = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
+                    )
                 }
             }
+        }
+        val editDate = manualEditDate?.let(LocalDate::parse)
+        if (editDate != null) {
+            ManualStepsDialog(
+                date = editDate,
+                existing = history.find { it.date == editDate },
+                onDismiss = { manualEditDate = null },
+                onSave = { steps ->
+                    runCatching { repository.recordPastSteps(editDate, steps) }
+                        .onSuccess { update(repository.current()); selectedDate = editDate.toString() }
+                        .onFailure { messageDialog = it.message ?: "No se guardaron los pasos." }
+                    manualEditDate = null
+                }
+            )
+        }
+        pendingBackup?.let { backup ->
+            val alreadyStored = history.map { it.date }.toSet()
+            val replacements = backup.days.count { it.date in alreadyStored }
+            AlertDialog(
+                onDismissRequest = { pendingBackup = null },
+                containerColor = CardBackground,
+                title = { Text("Restaurar respaldo") },
+                text = { Text(
+                    "Se importarán ${backup.days.size} días. ${replacements} fechas ya existentes " +
+                        "se reemplazarán y las demás se añadirán. También se recuperará la meta predeterminada. " +
+                        "Los días que no estén en el archivo se conservarán."
+                ) },
+                confirmButton = { TextButton(onClick = {
+                    runCatching { repository.restoreBackup(backup) }
+                        .onSuccess { update(repository.current()); selectedDate = null
+                            messageDialog = "Respaldo restaurado correctamente." }
+                        .onFailure { messageDialog = it.message ?: "No se pudo restaurar." }
+                    pendingBackup = null
+                }) { Text("Restaurar") } },
+                dismissButton = { TextButton(onClick = { pendingBackup = null }) {
+                    Text("Cancelar")
+                } }
+            )
+        }
+        messageDialog?.let { message ->
+            AlertDialog(
+                onDismissRequest = { messageDialog = null },
+                containerColor = CardBackground,
+                title = { Text("Pasos Diarios") },
+                text = { Text(message) },
+                confirmButton = { TextButton(onClick = { messageDialog = null }) { Text("Aceptar") } }
+            )
         }
     }
 }
