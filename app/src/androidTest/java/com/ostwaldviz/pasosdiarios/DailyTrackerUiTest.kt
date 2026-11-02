@@ -49,11 +49,16 @@ class DailyTrackerUiTest {
         openSettings("6", "500")
         rule.onNodeWithText("Guardar cambios").performClick()
         rule.onNodeWithText("Historial", useUnmergedTree = false).performClick()
-        rule.onNodeWithText("2,000 / 10,000 pasos").assertExists()
+        rule.onNodeWithTag("export-history").assertHasClickAction()
+        rule.onNodeWithTag("import-history").assertHasClickAction()
+        rule.onNodeWithTag("history-list").performScrollToNode(hasText("0 / 3,000 pasos"))
         rule.onNodeWithText("0 / 3,000 pasos").assertExists()
+        rule.onNodeWithTag("history-list").performScrollToNode(hasText("2,000 / 10,000 pasos"))
+        rule.onNodeWithText("2,000 / 10,000 pasos").assertExists()
         screenshot("04-history")
         val label = yesterday.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM 'de' yyyy", Locale("es", "MX")))
             .replaceFirstChar { it.uppercaseChar() }
+        rule.onNodeWithTag("history-list").performScrollToNode(hasText(label))
         rule.onNodeWithText(label).performClick()
         rule.onNodeWithTag("total-steps").assertTextEquals("2,000")
         rule.onNodeWithText("Meta: 10,000 pasos").assertExists()
@@ -178,6 +183,7 @@ class DailyTrackerUiTest {
         val yesterdayLabel = yesterday.format(DateTimeFormatter.ofPattern(
             "EEEE d 'de' MMMM 'de' yyyy", Locale("es", "MX")
         )).replaceFirstChar { it.uppercaseChar() }
+        rule.onNodeWithTag("history-list").performScrollToNode(hasText(yesterdayLabel))
         rule.onNodeWithText(yesterdayLabel).performClick()
         rule.runOnIdle {
             val previous = DailyRepository(StepPreferences(rule.activity)).history().last()
