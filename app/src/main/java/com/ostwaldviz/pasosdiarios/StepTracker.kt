@@ -83,24 +83,41 @@ data class StepPlan(
 data class DailyProgress(
     val date: LocalDate,
     val plan: StepPlan = StepPlan(),
-    val completed: Set<Int> = emptySet()
+    val completed: Set<Int> = emptySet(),
+    /** Exact number entered by the user for a past day; null means blocks determine the total. */
+    val manualSteps: Int? = null
 ) {
     init {
         require(completed.all { it in 0 until plan.blockCount })
+        require(manualSteps == null || manualSteps in 0..StepPlan.MAX_TOTAL_STEPS)
     }
 
     val completedCount: Int get() = completed.size
-    val totalSteps: Int get() = completed.sumOf(plan::stepsForBlock)
-    val progress: Float get() = totalSteps.toFloat() / plan.targetSteps
-    val percent: Int get() = totalSteps * 100 / plan.targetSteps
+    val totalSteps: Int get() = manualSteps ?: completed.sumOf(plan::stepsForBlock)
+    val progress: Float get() = (totalSteps.toFloat() / plan.targetSteps).coerceIn(0f, 1f)
+    val percent: Int get() = ((totalSteps.toLong() * 100 / plan.targetSteps).toInt()).coerceAtMost(100)
 
+    /** Tapping a block switches back to block-based counting, so totals never conflict. */
     fun toggle(index: Int): DailyProgress {
         require(index in 0 until plan.blockCount)
-        return copy(completed = if (index in completed) completed - index else completed + index)
+        return copy(
+            completed = if (index in completed) completed - index else completed + index,
+            manualSteps = null
+        )
     }
 
     fun withPlan(newPlan: StepPlan): DailyProgress =
-        copy(plan = newPlan, completed = completed.filterTo(mutableSetOf()) { it < newPlan.blockCount })
+        copy(plan = newPlan, completed = completed.filterTo(mutableSetOf()) { it < newPlan.blockCount },
+            manualSteps = null)
+
+    /** Backfill exact pedometer counts, including counts above the daily target. */
+    fun withRecordedSteps(steps: Int): DailyProgress {
+        require(steps in 0..StepPlan.MAX_TOTAL_STEPS)
+        val coveredBlocks = (0 until plan.blockCount).filterTo(mutableSetOf()) {
+            plan.cumulativeSteps(it) <= steps
+        }
+        return copy(completed = coveredBlocks, manualSteps = steps)
+    }
 
     companion object {
         fun fromLegacy(date: LocalDate, mask: Int): DailyProgress = DailyProgress(
