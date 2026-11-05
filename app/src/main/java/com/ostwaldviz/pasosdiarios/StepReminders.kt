@@ -201,7 +201,13 @@ class StepReminderReceiver : BroadcastReceiver() {
 
 class StepReminderRestoreReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        // No background service: system time, zone, reboot and package updates re-arm the next alarm.
-        StepReminders(context).reschedule()
+        // Accept only the documented system actions, never arbitrary broadcasts.
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_DATE_CHANGED -> StepReminders(context).reschedule()
+        }
     }
 }

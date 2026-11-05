@@ -34,6 +34,7 @@ class DailyTrackerUiTest {
 
     @Test fun changeGoalPreservesChecksAndSurvivesActivityRecreation() {
         screenshot("01-today")
+        scrollToBlock(0)
         rule.onNodeWithTag("block-0").performClick()
         openSettings("6", "500")
         screenshot("02-settings")
@@ -41,7 +42,9 @@ class DailyTrackerUiTest {
         rule.onNodeWithTag("total-steps").assertTextEquals("500")
         rule.onNodeWithText("Meta: 3,000 pasos").assertExists()
         rule.activityRule.scenario.recreate()
+        scrollToBlock(0)
         rule.onNodeWithTag("block-0").assertIsOn()
+        scrollToProgress()
         rule.onNodeWithTag("total-steps").assertTextEquals("500")
         screenshot("03-custom-goal")
     }
@@ -135,10 +138,14 @@ class DailyTrackerUiTest {
         rule.onNodeWithText("Para alcanzar la meta exacta: 2 bloques de 1,715 pasos y 5 de 1,714.").assertExists()
         rule.onNodeWithText("Guardar cambios").performClick()
         rule.onNodeWithText("Meta: 12,000 pasos").assertExists()
+        scrollToBlock(0)
         rule.onNodeWithTag("block-0").performClick().assertIsOn()
+        scrollToProgress()
         rule.onNodeWithTag("total-steps").assertTextEquals("1,715")
         rule.activityRule.scenario.recreate()
+        scrollToBlock(0)
         rule.onNodeWithTag("block-0").assertIsOn()
+        scrollToProgress()
         rule.onNodeWithTag("total-steps").assertTextEquals("1,715")
         rule.runOnIdle {
             val plan = DailyRepository(StepPreferences(rule.activity)).current().plan
@@ -155,7 +162,9 @@ class DailyTrackerUiTest {
         rule.onNodeWithText("20,000 pasos").assertExists()
         rule.onNodeWithText("Guardar cambios").performClick()
         rule.onNodeWithText("Meta: 20,000 pasos").assertExists()
+        scrollToBlock(0)
         rule.onNodeWithTag("block-0").performClick()
+        scrollToProgress()
         rule.onNodeWithTag("total-steps").assertTextEquals("2,000")
     }
 
@@ -170,10 +179,12 @@ class DailyTrackerUiTest {
         rule.activityRule.scenario.recreate()
 
         rule.onNodeWithTag("schedule-range").assertExists()
+        scrollToBlock(0)
         rule.onNodeWithTag("block-0").assertExists()
         rule.onNodeWithText(LocalTime.of(9, 0).format(
             DateTimeFormatter.ofPattern("h:mm a", Locale("es", "MX"))
         )).assertExists()
+        scrollToProgress()
         rule.onNodeWithText("Ajustar meta, bloques y horario").performClick()
         rule.onNodeWithTag("start-time").assertHasClickAction()
         rule.onNodeWithTag("end-time").assertHasClickAction()
@@ -218,7 +229,17 @@ class DailyTrackerUiTest {
         }
     }
 
+    private fun scrollToBlock(index: Int) {
+        rule.onNodeWithTag("daily-list").performScrollToNode(hasTestTag("block-$index"))
+    }
+
+    private fun scrollToProgress() {
+        rule.onNodeWithTag("daily-list").performScrollToNode(hasTestTag("total-steps"))
+    }
+
     private fun openSettings(blocks: String, steps: String) {
+        rule.onNodeWithTag("daily-list")
+            .performScrollToNode(hasText("Ajustar meta, bloques y horario"))
         rule.onNodeWithText("Ajustar meta, bloques y horario").performClick()
         rule.onNodeWithTag("block-count").performTextReplacement(blocks)
         rule.onNodeWithTag("steps-per-block").performTextReplacement(steps)
