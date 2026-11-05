@@ -21,6 +21,8 @@ class DailyTrackerUiTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
 
     @Before fun clearProgress() {
+        rule.activity.getSharedPreferences("pasos_diarios_reminders_v1", Context.MODE_PRIVATE)
+            .edit().clear().commit()
         rule.activity.getSharedPreferences("pasos_diarios_v1", Context.MODE_PRIVATE).edit().clear().commit()
         rule.activityRule.scenario.recreate()
         rule.waitForIdle()
@@ -30,6 +32,27 @@ class DailyTrackerUiTest {
         rule.onNodeWithText("Recordatorios por bloque").assertExists()
         rule.onNodeWithTag("reminders-switch").assertExists()
         rule.onNodeWithTag("reminders-switch").assertIsOff()
+    }
+
+    @Test fun pendingReminderShowsCenteredDialogAndDoesNotCountSteps() {
+        val now = LocalDate.now()
+        rule.activity.getSharedPreferences("pasos_diarios_reminders_v1", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("enabled", true)
+            .putString("pending_day", now.toString())
+            .putInt("pending_index", 0)
+            .putLong("pending_at", System.currentTimeMillis())
+            .commit()
+        rule.activityRule.scenario.recreate()
+        rule.waitForIdle()
+        rule.onNodeWithTag("walking-reminder-dialog").assertExists()
+        rule.onNodeWithText("¡Hora de levantarte!").assertExists()
+        rule.onNodeWithTag("ack-walking-reminder").performClick()
+        rule.onNodeWithTag("walking-reminder-dialog").assertDoesNotExist()
+        rule.onNodeWithTag("total-steps").assertTextEquals("0")
+        rule.runOnIdle {
+            assertEquals(0, DailyRepository(StepPreferences(rule.activity)).current().totalSteps)
+        }
     }
 
     @Test fun changeGoalPreservesChecksAndSurvivesActivityRecreation() {

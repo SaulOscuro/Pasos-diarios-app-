@@ -2,12 +2,13 @@
 
 Aplicación **nativa de Android** hecha con Kotlin y Jetpack Compose para ajustar directamente tu meta diaria y repartirla en bloques. El plan inicial sigue siendo de diez bloques de 1,000 pasos.
 
-## Funcionalidades de la v1.5
+## Funcionalidades de la v1.5.1
 
 - **Meta total editable**: define directamente 10,000, 12,000, 15,000, 20,000 o hasta 10,000,000 pasos. El objetivo es el valor principal al organizar los bloques.
 - **Ajustar meta, bloques y horario** permite elegir entre 1 y 100 bloques sin cambiar tu meta, editar los pasos por bloque para recalcularla y seleccionar el horario de caminatas con el reloj de Android. Cuando la meta no se divide exactamente, la app distribuye la diferencia de un paso entre bloques.
 - **Bloques tocables** que puedes marcar y desmarcar en cualquier orden, con una barra segmentada que se adapta a la cantidad elegida.
 - **Recordatorios locales opcionales**: activa `Recordatorios por bloque` en la pestaña Hoy y concede permiso de notificaciones. La app avisa cuando llega la hora de cada bloque todavía pendiente; el siguiente aviso se adapta automáticamente si cambias las horas, la meta o los bloques completados. Los avisos se vuelven a programar tras reiniciar Android o cambiar la zona horaria.
+- **Aviso destacado v1.5.1**: notificación emergente más visible, con sonido y vibración breve, contenido expandible y visibilidad en la pantalla de bloqueo, si las preferencias de Android lo permiten. Al abrir Pasos Diarios después de recibir un aviso pendiente, aparece una tarjeta centrada que puedes cerrar con **¡Voy a caminar!** sin marcar falsamente el bloque como hecho. Usa **Configurar avisos emergentes** para comprobar los ajustes de Android. Por limitaciones de Android, la aplicación no puede dibujar por defecto una ventana centrada encima de otras apps ni forzar que aparezca justo al desbloquear el teléfono.
 - **No son alarmas exactas**: para ahorrar batería y evitar permisos de alarmas especiales, Android puede retrasar avisos en reposo. La app no necesita conexión a internet ni ejecutarse continuamente.
 - **Horario de inicio y fin configurable**: elige, por ejemplo, de 9:00 a. m. a 9:00 p. m. y se repartirán automáticamente los bloques entre esas horas, incluyendo el primero y último. Con un solo bloque se propone la hora de inicio. El horario debe comenzar y terminar dentro del mismo día, con la hora de fin posterior a la de inicio. Cuando hay más bloques que minutos disponibles, algunas horas se repiten.
 - **Horario original conservado**: el plan inicial de diez bloques de 8:00 a 20:00 mantiene sus horas de siempre; si cambias el intervalo, se distribuyen uniformemente.

@@ -11,6 +11,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.graphics.Color
 import java.text.NumberFormat
 import java.time.Duration
 import java.time.LocalDate
@@ -72,13 +75,26 @@ class StepReminders(context: Context) {
     private val alarmManager = app.getSystemService(AlarmManager::class.java)
 
     init {
+        // A new channel is needed because Android keeps the previous channel's
+        // original sound/vibration settings even after updating the application.
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Recordatorios de caminatas",
+            "Avisos destacados para caminar",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Avisos para levantarte y completar tus bloques de pasos."
+            description = "Avisos emergentes con sonido y vibración para los bloques pendientes."
             enableVibration(true)
+            vibrationPattern = longArrayOf(0, 200, 140, 200)
+            enableLights(true)
+            lightColor = Color.GREEN
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
         }
         manager.createNotificationChannel(channel)
     }
@@ -94,8 +110,32 @@ class StepReminders(context: Context) {
             manager.areNotificationsEnabled() &&
             manager.getNotificationChannel(CHANNEL_ID)?.importance != NotificationManager.IMPORTANCE_NONE
 
+    /** Returns the unacknowledged reminder for today when its block is still pending. */
+    fun pendingBlock(record: DailyProgress): Int? {
+        val day = settings.getString(PENDING_DAY, null)
+        val index = settings.getInt(PENDING_INDEX, -1)
+        val timestamp = settings.getLong(PENDING_AT, -1L)
+        val age = System.currentTimeMillis() - timestamp
+        val valid = enabled() && day == record.date.toString() &&
+            index in 0 until record.plan.blockCount && index !in record.completed &&
+            timestamp > 0 && age in 0..MAX_PENDING_AGE_MS
+        if (!valid && day != null) clearPending()
+        return index.takeIf { valid }
+    }
+
+    /** Acknowledge the notice, not the steps themselves. */
+    fun acknowledgePending() {
+        clearPending()
+        manager.cancelAll()
+    }
+
+    private fun clearPending() {
+        settings.edit().remove(PENDING_DAY).remove(PENDING_INDEX).remove(PENDING_AT).apply()
+    }
+
     fun setEnabled(value: Boolean) {
         settings.edit().putBoolean(ENABLED_KEY, value).apply()
+        if (!value) acknowledgePending()
         reschedule()
     }
 
@@ -143,6 +183,11 @@ class StepReminders(context: Context) {
     }
 
     private fun showReminder(record: DailyProgress, index: Int) {
+        settings.edit()
+            .putString(PENDING_DAY, record.date.toString())
+            .putInt(PENDING_INDEX, index)
+            .putLong(PENDING_AT, System.currentTimeMillis())
+            .apply()
         val openApp = PendingIntent.getActivity(
             app, 0,
             Intent(app, MainActivity::class.java).apply {
@@ -152,15 +197,27 @@ class StepReminders(context: Context) {
         )
         val steps = NumberFormat.getIntegerInstance(Locale("es", "MX"))
             .format(record.plan.stepsForBlock(index))
+        val title = "¡Es momento de caminar!"
+        val detail = "Bloque ${index + 1} · ${steps} pasos. Levántate y toma una pausa."
         val notification = Notification.Builder(app, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_walk)
-            .setContentTitle("¡Hora de caminar!")
-            .setContentText("Bloque ${index + 1}: ${steps} pasos. Levántate y muévete.")
+            .setContentTitle(title)
+            .setContentText(detail)
+            .setStyle(Notification.BigTextStyle().bigText(
+                "$detail Abre Pasos Diarios para ver tu aviso y tu progreso."
+            ))
             .setContentIntent(openApp)
             .setCategory(Notification.CATEGORY_REMINDER)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setColor(Color.rgb(66, 214, 154))
+            .setShowWhen(true)
             .setAutoCancel(true)
             .build()
-        manager.notify(NOTIFICATION_ID, notification)
+        // Use a distinct ID for each session so Android can surface a fresh banner;
+        // clear older walking reminders to avoid flooding the notification shade.
+        manager.cancelAll()
+        manager.notify(NOTIFICATION_ID_BASE + index, notification)
     }
 
     private fun alarmIntent(
@@ -181,14 +238,18 @@ class StepReminders(context: Context) {
     }
 
     companion object {
-        private const val CHANNEL_ID = "walking_steps_v1"
+        private const val CHANNEL_ID = "walking_steps_prominent_v2"
         private const val ENABLED_KEY = "enabled"
+        private const val PENDING_DAY = "pending_day"
+        private const val PENDING_INDEX = "pending_index"
+        private const val PENDING_AT = "pending_at"
+        private const val MAX_PENDING_AGE_MS = 2 * 60 * 60 * 1000L
         private const val ACTION_ALARM = "com.ostwaldviz.pasosdiarios.STEP_REMINDER"
         private const val EXTRA_DAY = "day"
         private const val EXTRA_INDEX = "index"
         private const val EXTRA_TRIGGER = "trigger"
         private const val ALARM_REQUEST_CODE = 41
-        private const val NOTIFICATION_ID = 101
+        private const val NOTIFICATION_ID_BASE = 200
     }
 }
 

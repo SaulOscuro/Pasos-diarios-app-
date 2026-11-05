@@ -97,6 +97,7 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
     val reminders = remember(context) { StepReminders(context) }
     var remindersEnabled by remember { mutableStateOf(reminders.enabled()) }
     var notificationsAvailable by remember { mutableStateOf(reminders.canPost()) }
+    var reminderPopup by remember { mutableStateOf<Int?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -169,6 +170,7 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
     fun update(record: DailyProgress) {
         current = record
         history = repository.history()
+        reminderPopup = reminders.pendingBlock(record)
         reminders.reschedule()
     }
 
@@ -192,6 +194,17 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
             val now = ZonedDateTime.now()
             val midnight = now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
             delay(Duration.between(now, midnight).toMillis().coerceIn(1L, 60_000L))
+        }
+    }
+
+    // Surface a centered in-app reminder if Android delivered the notification
+    // while the phone was locked or the app was in the background.
+    LaunchedEffect(repository, lifecycle) {
+        while (true) {
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                reminderPopup = reminders.pendingBlock(repository.current())
+            }
+            delay(2_000)
         }
     }
 
@@ -257,6 +270,47 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
                         onImport = { importLauncher.launch(arrayOf("application/json", "text/plain")) }
                     )
                 }
+            }
+        }
+        reminderPopup?.let { index ->
+            if (current.date == LocalDate.now() && index in 0 until current.plan.blockCount) {
+                AlertDialog(
+                    modifier = Modifier.testTag("walking-reminder-dialog"),
+                    onDismissRequest = {
+                        reminders.acknowledgePending()
+                        reminderPopup = null
+                    },
+                    containerColor = CardBackground,
+                    icon = {
+                        Icon(Icons.Outlined.DirectionsWalk, null,
+                            modifier = Modifier.size(40.dp), tint = Mint)
+                    },
+                    title = {
+                        Text("¡Hora de levantarte!", fontWeight = FontWeight.Bold)
+                    },
+                    text = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Bloque ${index + 1} de ${current.plan.blockCount}",
+                                fontWeight = FontWeight.SemiBold)
+                            Text("Camina ${formatNumber(current.plan.stepsForBlock(index))} pasos.",
+                                fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Mint)
+                            Text("Un pequeño descanso del escritorio.",
+                                color = SecondaryText, fontSize = 13.sp)
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = {
+                            reminders.acknowledgePending()
+                            reminderPopup = null
+                            tab = "today"
+                            selectedDate = null
+                        }, modifier = Modifier.testTag("ack-walking-reminder")) {
+                            Text("¡Voy a caminar!")
+                        }
+                    }
+                )
             }
         }
         val editDate = manualEditDate?.let { LocalDate.parse(it) }
@@ -431,14 +485,16 @@ private fun ReminderCard(
                     modifier = Modifier.testTag("reminders-switch")
                 )
             }
-            if (enabled && !notificationsAvailable) {
+            if (enabled) {
                 TextButton(onClick = onOpenSettings, modifier = Modifier.align(Alignment.End)) {
-                    Text("Permitir en Android")
+                    Text(if (notificationsAvailable) "Configurar avisos emergentes"
+                        else "Permitir en Android")
                 }
             }
             if (enabled && notificationsAvailable) {
-                Text("Avisos diarios según tus horarios. Android puede retrasarlos ligeramente " +
-                    "si el teléfono está ahorrando batería.",
+                Text("Avisos destacados con sonido y vibración. Se muestran en la pantalla " +
+                    "de bloqueo cuando Android lo permite. Al abrir la app aparece " +
+                    "también un aviso centrado. El ahorro de batería puede retrasarlos.",
                     color = SecondaryText, fontSize = 12.sp, lineHeight = 17.sp)
             }
         }
