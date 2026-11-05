@@ -218,6 +218,8 @@ class StepReminders(context: Context) {
         // clear older walking reminders to avoid flooding the notification shade.
         manager.cancelAll()
         manager.notify(NOTIFICATION_ID_BASE + index, notification)
+        // The visible activity can react immediately without polling.
+        app.sendBroadcast(Intent(ACTION_REMINDER_SHOWN).setPackage(app.packageName))
     }
 
     private fun alarmIntent(
@@ -238,6 +240,8 @@ class StepReminders(context: Context) {
     }
 
     companion object {
+        internal const val ACTION_REMINDER_SHOWN =
+            "com.ostwaldviz.pasosdiarios.REMINDER_SHOWN"
         private const val CHANNEL_ID = "walking_steps_prominent_v2"
         private const val ENABLED_KEY = "enabled"
         private const val PENDING_DAY = "pending_day"

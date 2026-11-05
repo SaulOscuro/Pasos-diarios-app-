@@ -4,6 +4,9 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.Manifest
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -197,15 +200,24 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
         }
     }
 
-    // Surface a centered in-app reminder if Android delivered the notification
-    // while the phone was locked or the app was in the background.
-    LaunchedEffect(repository, lifecycle) {
-        while (true) {
-            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                reminderPopup = reminders.pendingBlock(repository.current())
+    // Immediately show a centered panel while the app is foregrounded.
+    // If it was closed, ON_RESUME above recovers the pending reminder.
+    DisposableEffect(context, repository) {
+        val filter = IntentFilter(StepReminders.ACTION_REMINDER_SHOWN)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == StepReminders.ACTION_REMINDER_SHOWN) {
+                    reminderPopup = reminders.pendingBlock(repository.current())
+                }
             }
-            delay(2_000)
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose { context.unregisterReceiver(receiver) }
     }
 
     BackHandler(enabled = selectedDate != null || tab != "today") {
