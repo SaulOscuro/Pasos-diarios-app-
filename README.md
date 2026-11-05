@@ -2,11 +2,13 @@
 
 Aplicación **nativa de Android** hecha con Kotlin y Jetpack Compose para ajustar directamente tu meta diaria y repartirla en bloques. El plan inicial sigue siendo de diez bloques de 1,000 pasos.
 
-## Funcionalidades de la v1.4
+## Funcionalidades de la v1.5
 
 - **Meta total editable**: define directamente 10,000, 12,000, 15,000, 20,000 o hasta 10,000,000 pasos. El objetivo es el valor principal al organizar los bloques.
 - **Ajustar meta, bloques y horario** permite elegir entre 1 y 100 bloques sin cambiar tu meta, editar los pasos por bloque para recalcularla y seleccionar el horario de caminatas con el reloj de Android. Cuando la meta no se divide exactamente, la app distribuye la diferencia de un paso entre bloques.
 - **Bloques tocables** que puedes marcar y desmarcar en cualquier orden, con una barra segmentada que se adapta a la cantidad elegida.
+- **Recordatorios locales opcionales**: activa `Recordatorios por bloque` en la pestaña Hoy y concede permiso de notificaciones. La app avisa cuando llega la hora de cada bloque todavía pendiente; el siguiente aviso se adapta automáticamente si cambias las horas, la meta o los bloques completados. Los avisos se vuelven a programar tras reiniciar Android o cambiar la zona horaria.
+- **No son alarmas exactas**: para ahorrar batería y evitar permisos de alarmas especiales, Android puede retrasar avisos en reposo. La app no necesita conexión a internet ni ejecutarse continuamente.
 - **Horario de inicio y fin configurable**: elige, por ejemplo, de 9:00 a. m. a 9:00 p. m. y se repartirán automáticamente los bloques entre esas horas, incluyendo el primero y último. Con un solo bloque se propone la hora de inicio. El horario debe comenzar y terminar dentro del mismo día, con la hora de fin posterior a la de inicio. Cuando hay más bloques que minutos disponibles, algunas horas se repiten.
 - **Horario original conservado**: el plan inicial de diez bloques de 8:00 a 20:00 mantiene sus horas de siempre; si cambias el intervalo, se distribuyen uniformemente.
 - **Guardado en el dispositivo** al tocar cada bloque, incluso si cierras la app.
@@ -15,7 +17,7 @@ Aplicación **nativa de Android** hecha con Kotlin y Jetpack Compose para ajusta
 - **Metas y horarios independientes por día**: modificar la configuración de hoy no recalcula ni modifica registros anteriores.
 - **Exportar / Restaurar** un archivo JSON con todas las fechas registradas, los pasos exactos, bloques, metas y horarios. Al importar, se muestra una confirmación: las fechas coincidentes se reemplazan, los demás días se conservan y la configuración predeterminada se restaura.
 - **Reinicio con confirmación** para evitar borrar accidentalmente el día actual.
-- Diseño oscuro, sin cuentas, publicidad, internet ni permisos especiales.
+- Diseño oscuro, sin cuentas, publicidad ni internet. **Solo solicita notificaciones cuando activas los recordatorios.** Usa el permiso de arranque para volver a programarlos tras un reinicio.
 
 > Esta versión es un **planificador manual**. No lee automáticamente el contador TriSport. Consulta `STEP`, no `TOTAL STEP`.
 
@@ -39,7 +41,7 @@ Para ajustar el horario, toca **Desde** y **Hasta** y elige las horas con el sel
 
 Los cambios se aplican a **hoy y a los próximos días**. Se mantienen las marcas de los bloques que siguen existiendo. Si retiras bloques que estaban completados, el diálogo indica cuántas marcas se quitarán. Recalcular el plan modifica los pasos de hoy según las marcas conservadas; el diálogo muestra el resultado antes de guardar. Cancelar conserva la configuración y el progreso originales.
 
-La v1.4 conserva los registros y metas de la v1.3, la v1.2 y la v1.1, y recupera registros de diez bloques de la v1.0 si se instala como actualización conservando el almacenamiento de la app. Los días anteriores mantienen su meta y su horario original.
+La v1.5 conserva los registros y metas de la v1.4, v1.3, v1.2 y v1.1, y recupera registros de diez bloques de la v1.0 si se instala como actualización conservando el almacenamiento de la app. Los días anteriores mantienen su meta y su horario original.
 
 ## Descargar el APK
 
@@ -73,10 +75,11 @@ Con un emulador o teléfono de pruebas conectado, `./gradlew :app:connectedDebug
 - `app/src/main/java/com/ostwaldviz/pasosdiarios/DailyRepository.kt`: historial editable, cambio de día, migración y respaldo/restauración seguros.
 - `app/src/main/java/com/ostwaldviz/pasosdiarios/BackupArchive.kt`: lectura y escritura del JSON portable.
 - `app/src/main/java/com/ostwaldviz/pasosdiarios/StepPreferences.kt`: almacenamiento local en SharedPreferences.
+- `app/src/main/java/com/ostwaldviz/pasosdiarios/StepReminders.kt`: avisos locales Android, programación del siguiente bloque pendiente y reprogramación tras reiniciar.
 - `app/src/test/java/com/ostwaldviz/pasosdiarios/`: pruebas de conteo, límites, migración, persistencia, medianoche y conservación de metas históricas.
 - `app/src/androidTest/java/com/ostwaldviz/pasosdiarios/`: pruebas de interacción y capturas en emulador.
 - `.github/workflows/android.yml`: compila y publica el APK de depuración como artefacto de Actions.
 
 ## Privacidad
 
-La aplicación no solicita permisos ni se conecta con servicios remotos. Los bloques confirmados se almacenan localmente mediante SharedPreferences. El respaldo JSON queda bajo tu control y puedes compartirlo voluntariamente. Para eliminar los datos locales, borra el almacenamiento de la aplicación desde los ajustes de Android.
+La aplicación solo solicita permiso de notificaciones si decides activar los recordatorios y declara permiso para restaurarlos tras reiniciar. No se conecta con servicios remotos. Los bloques confirmados se almacenan localmente mediante SharedPreferences. El respaldo JSON queda bajo tu control y puedes compartirlo voluntariamente. Para eliminar los datos locales, borra el almacenamiento de la aplicación desde los ajustes de Android.

@@ -2,7 +2,12 @@ package com.ostwaldviz.pasosdiarios
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -89,6 +94,43 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
     var pendingBackup by remember { mutableStateOf<ProgressBackup?>(null) }
     var messageDialog by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val reminders = remember(context) { StepReminders(context) }
+    var remindersEnabled by remember { mutableStateOf(reminders.enabled()) }
+    var notificationsAvailable by remember { mutableStateOf(reminders.canPost()) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        notificationsAvailable = reminders.canPost()
+        if (granted && notificationsAvailable) {
+            reminders.setEnabled(true)
+            remindersEnabled = true
+        } else {
+            messageDialog = "Para recibir avisos, permite las notificaciones de Pasos Diarios en los ajustes de Android."
+        }
+    }
+
+    fun changeReminders(enabled: Boolean) {
+        if (!enabled) {
+            reminders.setEnabled(false)
+            remindersEnabled = false
+        } else if (reminders.canPost()) {
+            reminders.setEnabled(true)
+            remindersEnabled = true
+            notificationsAvailable = true
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            messageDialog = "Android bloqueó las notificaciones. Actívalas en Ajustes para recibir tus recordatorios."
+        }
+    }
+
+    fun openNotificationSettings() {
+        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        })
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -127,13 +169,18 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
     fun update(record: DailyProgress) {
         current = record
         history = repository.history()
+        reminders.reschedule()
     }
 
     // A closed app needs no midnight job: every tap is already persisted under its date.
     // Refresh immediately on returning from sleep/background, including clock/time-zone changes.
     DisposableEffect(lifecycle, repository) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) update(repository.current())
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsAvailable = reminders.canPost()
+                remindersEnabled = reminders.enabled()
+                update(repository.current())
+            }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
@@ -187,7 +234,11 @@ private fun DailyTrackerApp(repository: DailyRepository, lifecycle: Lifecycle) {
                             record = displayed,
                             onToggle = { update(repository.toggle(displayed.date, it)) },
                             onReset = { update(repository.reset(displayed.date)) },
-                            onPlanChange = { update(repository.changePlan(displayed.date, it)) }
+                            onPlanChange = { update(repository.changePlan(displayed.date, it)) },
+                            remindersEnabled = remindersEnabled,
+                            notificationsAvailable = notificationsAvailable,
+                            onRemindersChange = ::changeReminders,
+                            onNotificationSettings = ::openNotificationSettings
                         )
                     }
                     selected != null -> HistoryDetail(
@@ -263,7 +314,11 @@ private fun DailyHome(
     record: DailyProgress,
     onToggle: (Int) -> Unit,
     onReset: () -> Unit,
-    onPlanChange: (StepPlan) -> Unit
+    onPlanChange: (StepPlan) -> Unit,
+    remindersEnabled: Boolean,
+    notificationsAvailable: Boolean,
+    onRemindersChange: (Boolean) -> Unit,
+    onNotificationSettings: () -> Unit
 ) {
     var resetDialog by rememberSaveable { mutableStateOf(false) }
     var planDialog by rememberSaveable { mutableStateOf(false) }
@@ -288,6 +343,14 @@ private fun DailyHome(
                     modifier = Modifier.testTag("schedule-range")
                 )
             }
+        }
+        item {
+            ReminderCard(
+                enabled = remindersEnabled,
+                notificationsAvailable = notificationsAvailable,
+                onToggle = onRemindersChange,
+                onOpenSettings = onNotificationSettings
+            )
         }
         if (record.completedCount == record.plan.blockCount) {
             item {
@@ -338,6 +401,48 @@ private fun DailyHome(
         confirmButton = { TextButton(onClick = { onReset(); resetDialog = false }) { Text("Reiniciar") } },
         dismissButton = { TextButton(onClick = { resetDialog = false }) { Text("Cancelar") } }
     )
+}
+
+@Composable
+private fun ReminderCard(
+    enabled: Boolean,
+    notificationsAvailable: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("reminders-card"),
+        color = CardBackground, shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Outlined.NotificationsActive, null,
+                    modifier = Modifier.size(25.dp), tint = if (enabled) Mint else SecondaryText)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Recordatorios por bloque", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(if (enabled && notificationsAvailable) "Activos para los bloques pendientes"
+                        else if (enabled) "Necesitas permitir las notificaciones"
+                        else "Un aviso cuando toque caminar",
+                        fontSize = 12.sp, color = SecondaryText)
+                }
+                Switch(
+                    checked = enabled, onCheckedChange = onToggle,
+                    modifier = Modifier.testTag("reminders-switch")
+                )
+            }
+            if (enabled && !notificationsAvailable) {
+                TextButton(onClick = onOpenSettings, modifier = Modifier.align(Alignment.End)) {
+                    Text("Permitir en Android")
+                }
+            }
+            if (enabled && notificationsAvailable) {
+                Text("Avisos diarios según tus horarios. Android puede retrasarlos ligeramente " +
+                    "si el teléfono está ahorrando batería.",
+                    color = SecondaryText, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+        }
+    }
 }
 
 @Composable

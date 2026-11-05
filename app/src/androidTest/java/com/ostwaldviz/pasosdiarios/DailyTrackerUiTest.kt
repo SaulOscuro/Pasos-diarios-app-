@@ -26,6 +26,12 @@ class DailyTrackerUiTest {
         rule.waitForIdle()
     }
 
+    @Test fun walkingReminderSwitchIsAvailableAndDisabledByDefault() {
+        rule.onNodeWithText("Recordatorios por bloque").assertExists()
+        rule.onNodeWithTag("reminders-switch").assertExists()
+        rule.onNodeWithTag("reminders-switch").assertIsOff()
+    }
+
     @Test fun changeGoalPreservesChecksAndSurvivesActivityRecreation() {
         screenshot("01-today")
         rule.onNodeWithTag("block-0").performClick()

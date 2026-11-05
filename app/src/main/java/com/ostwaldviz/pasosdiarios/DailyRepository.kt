@@ -72,6 +72,9 @@ class DailyRepository(
         return record.toggle(index).also { save(it) }
     }
 
+    /** The default schedule used when a new day starts. */
+    fun reminderPlanForTomorrow(): StepPlan = defaultPlan()
+
     fun exportBackup(): String = BackupArchive.encode(defaultPlan(), history())
 
     /** Merge by date; imported matching dates replace their old records after UI confirmation. */
